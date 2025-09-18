@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gestor de Presupuestos - Ulises Construcciones</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="branding">
+        <div class="logo">UC</div>
+        <div class="brand-text">
+          <h1>Ulises Construcciones</h1>
+          <p>Panel de gestión de presupuestos y obras</p>
+        </div>
+      </div>
+      <nav class="app-nav" aria-label="Secciones principales">
+        <a href="#informacion">Información</a>
+        <a href="#presupuestos">Presupuestos</a>
+        <a href="#resumen">Resumen</a>
+        <a href="#cronograma">Cronograma</a>
+        <a href="#notas">Notas</a>
+      </nav>
+    </header>
+
+    <main>
+      <section id="informacion" class="card">
+        <header class="card__header">
+          <h2>Información general del proyecto</h2>
+          <p>Completa los datos básicos del cliente y la obra.</p>
+        </header>
+        <div class="card__body form-grid">
+          <label>
+            <span>Nombre del proyecto</span>
+            <input type="text" id="projectName" placeholder="Edificio residencial, remodelación, etc." />
+          </label>
+          <label>
+            <span>Cliente</span>
+            <input type="text" id="clientName" placeholder="Nombre o empresa" />
+          </label>
+          <label>
+            <span>Correo electrónico</span>
+            <input type="email" id="clientEmail" placeholder="cliente@correo.com" />
+          </label>
+          <label>
+            <span>Teléfono</span>
+            <input type="tel" id="clientPhone" placeholder="(XXX) XXX XXXX" />
+          </label>
+          <label class="form-grid__full">
+            <span>Dirección / Ubicación de la obra</span>
+            <input type="text" id="projectLocation" placeholder="Dirección completa" />
+          </label>
+          <label>
+            <span>Fecha de elaboración</span>
+            <input type="date" id="creationDate" />
+          </label>
+          <label>
+            <span>Responsable</span>
+            <input type="text" id="responsable" placeholder="Coordinador del proyecto" />
+          </label>
+          <label>
+            <span>Estado</span>
+            <select id="projectStatus">
+              <option value="borrador">Borrador</option>
+              <option value="en-revision">En revisión</option>
+              <option value="enviado">Enviado al cliente</option>
+              <option value="aprobado">Aprobado</option>
+              <option value="en-ejecucion">En ejecución</option>
+              <option value="finalizado">Finalizado</option>
+            </select>
+          </label>
+          <label>
+            <span>Duración estimada (semanas)</span>
+            <input type="number" id="duration" min="0" step="1" />
+          </label>
+          <label>
+            <span>Tipo de cambio (opcional)</span>
+            <input type="number" id="exchangeRate" min="0" step="0.01" placeholder="MXN/USD u otra moneda" />
+          </label>
+        </div>
+      </section>
+
+      <section id="presupuestos" class="card">
+        <header class="card__header">
+          <h2>Presupuestos detallados</h2>
+          <p>
+            Registra las partidas de materiales, mano de obra, subcontratos y otros gastos
+            operativos. Los totales se calculan automáticamente.
+          </p>
+        </header>
+        <div class="card__body budget-grid">
+          <article class="budget-section" data-section="materials">
+            <header>
+              <div>
+                <h3>Materiales</h3>
+                <p>Materiales principales y auxiliares requeridos para la obra.</p>
+              </div>
+              <button type="button" class="button button--ghost" data-action="add-row" data-section="materials">
+                + Agregar partida
+              </button>
+            </header>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Concepto</th>
+                    <th class="col-small">Cantidad</th>
+                    <th class="col-small">Unidad</th>
+                    <th class="col-small">P. Unitario</th>
+                    <th class="col-small">Importe</th>
+                    <th class="col-small" aria-label="Eliminar"></th>
+                  </tr>
+                </thead>
+                <tbody id="materialsBody"></tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="4">Total materiales</td>
+                    <td colspan="2"><span id="materialsTotal">$0.00</span></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </article>
+
+          <article class="budget-section" data-section="labor">
+            <header>
+              <div>
+                <h3>Mano de obra</h3>
+                <p>Cuadrillas, jornales y supervisiones necesarias.</p>
+              </div>
+              <button type="button" class="button button--ghost" data-action="add-row" data-section="labor">
+                + Agregar partida
+              </button>
+            </header>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Concepto</th>
+                    <th class="col-small">Cantidad</th>
+                    <th class="col-small">Unidad</th>
+                    <th class="col-small">P. Unitario</th>
+                    <th class="col-small">Importe</th>
+                    <th class="col-small" aria-label="Eliminar"></th>
+                  </tr>
+                </thead>
+                <tbody id="laborBody"></tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="4">Total mano de obra</td>
+                    <td colspan="2"><span id="laborTotal">$0.00</span></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </article>
+
+          <article class="budget-section" data-section="subcontracts">
+            <header>
+              <div>
+                <h3>Subcontratos y servicios</h3>
+                <p>Costos de proveedores especializados y servicios externos.</p>
+              </div>
+              <button type="button" class="button button--ghost" data-action="add-row" data-section="subcontracts">
+                + Agregar partida
+              </button>
+            </header>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Concepto</th>
+                    <th class="col-small">Cantidad</th>
+                    <th class="col-small">Unidad</th>
+                    <th class="col-small">P. Unitario</th>
+                    <th class="col-small">Importe</th>
+                    <th class="col-small" aria-label="Eliminar"></th>
+                  </tr>
+                </thead>
+                <tbody id="subcontractsBody"></tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="4">Total subcontratos</td>
+                    <td colspan="2"><span id="subcontractsTotal">$0.00</span></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </article>
+
+          <article class="budget-section" data-section="others">
+            <header>
+              <div>
+                <h3>Otros costos</h3>
+                <p>Viáticos, licencias, imprevistos y otros gastos operativos.</p>
+              </div>
+              <button type="button" class="button button--ghost" data-action="add-row" data-section="others">
+                + Agregar partida
+              </button>
+            </header>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Concepto</th>
+                    <th class="col-small">Cantidad</th>
+                    <th class="col-small">Unidad</th>
+                    <th class="col-small">P. Unitario</th>
+                    <th class="col-small">Importe</th>
+                    <th class="col-small" aria-label="Eliminar"></th>
+                  </tr>
+                </thead>
+                <tbody id="othersBody"></tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="4">Total otros costos</td>
+                    <td colspan="2"><span id="othersTotal">$0.00</span></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="resumen" class="card">
+        <header class="card__header">
+          <h2>Resumen financiero</h2>
+          <p>Visualiza el total del presupuesto y los impuestos aplicables.</p>
+        </header>
+        <div class="card__body summary-grid">
+          <div class="summary-item">
+            <span>Materiales</span>
+            <strong id="summaryMaterials">$0.00</strong>
+          </div>
+          <div class="summary-item">
+            <span>Mano de obra</span>
+            <strong id="summaryLabor">$0.00</strong>
+          </div>
+          <div class="summary-item">
+            <span>Subcontratos</span>
+            <strong id="summarySubcontracts">$0.00</strong>
+          </div>
+          <div class="summary-item">
+            <span>Otros costos</span>
+            <strong id="summaryOthers">$0.00</strong>
+          </div>
+          <div class="summary-item summary-item--accent">
+            <span>Subtotal</span>
+            <strong id="summarySubtotal">$0.00</strong>
+          </div>
+          <div class="summary-item">
+            <label for="taxRate">Impuestos (%)</label>
+            <input type="number" id="taxRate" min="0" step="0.01" value="16" />
+          </div>
+          <div class="summary-item">
+            <span>IVA / Impuestos</span>
+            <strong id="summaryTax">$0.00</strong>
+          </div>
+          <div class="summary-item summary-item--highlight">
+            <span>Total general</span>
+            <strong id="summaryTotal">$0.00</strong>
+          </div>
+        </div>
+        <footer class="card__footer actions">
+          <button type="button" class="button" id="downloadJson">Descargar presupuesto</button>
+          <button type="button" class="button button--secondary" id="clearData">Limpiar todo</button>
+        </footer>
+      </section>
+
+      <section id="cronograma" class="card">
+        <header class="card__header">
+          <h2>Cronograma de actividades</h2>
+          <p>Planifica las tareas principales y sus responsables.</p>
+        </header>
+        <div class="card__body">
+          <div class="table-wrapper">
+            <table class="schedule-table">
+              <thead>
+                <tr>
+                  <th>Actividad</th>
+                  <th>Responsable</th>
+                  <th>Fecha inicio</th>
+                  <th>Fecha fin</th>
+                  <th>Estado</th>
+                  <th aria-label="Eliminar"></th>
+                </tr>
+              </thead>
+              <tbody id="scheduleBody"></tbody>
+            </table>
+          </div>
+          <button type="button" class="button button--ghost" data-action="add-schedule">+ Agregar actividad</button>
+        </div>
+      </section>
+
+      <section id="notas" class="card">
+        <header class="card__header">
+          <h2>Notas, alcances y anexos</h2>
+          <p>Registra observaciones importantes, supuestos y enlaces a documentación.</p>
+        </header>
+        <div class="card__body form-grid">
+          <label class="form-grid__full">
+            <span>Alcance del proyecto</span>
+            <textarea id="scope" rows="4" placeholder="Describe brevemente el alcance, exclusiones y supuestos."></textarea>
+          </label>
+          <label class="form-grid__full">
+            <span>Notas para el cliente</span>
+            <textarea id="notes" rows="4" placeholder="Instrucciones adicionales, recomendaciones, etc."></textarea>
+          </label>
+          <label class="form-grid__full">
+            <span>Enlaces a documentos (Google Drive, planos, etc.)</span>
+            <textarea id="links" rows="3" placeholder="Pega los enlaces relevantes separados por líneas."></textarea>
+          </label>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>
+        Herramienta interna para Ulises Construcciones. Compatible con dispositivos móviles y lista para compartir con clientes.
+      </p>
+    </footer>
+
+    <template id="budget-row-template">
+      <tr>
+        <td data-label="Concepto">
+          <input type="text" placeholder="Descripción de la partida" />
+        </td>
+        <td data-label="Cantidad" class="col-small">
+          <input type="number" min="0" step="0.01" value="0" />
+        </td>
+        <td data-label="Unidad" class="col-small">
+          <input type="text" placeholder="m², pza, hr" />
+        </td>
+        <td data-label="P. Unitario" class="col-small">
+          <input type="number" min="0" step="0.01" value="0" />
+        </td>
+        <td data-label="Importe" class="col-small">
+          <output>$0.00</output>
+        </td>
+        <td class="col-small">
+          <button type="button" class="icon-button" data-action="remove-row" aria-label="Eliminar partida">✕</button>
+        </td>
+      </tr>
+    </template>
+
+    <template id="schedule-row-template">
+      <tr>
+        <td data-label="Actividad">
+          <input type="text" placeholder="Ej. Excavación, estructura, acabados" />
+        </td>
+        <td data-label="Responsable">
+          <input type="text" placeholder="Nombre o empresa" />
+        </td>
+        <td data-label="Fecha inicio">
+          <input type="date" />
+        </td>
+        <td data-label="Fecha fin">
+          <input type="date" />
+        </td>
+        <td data-label="Estado">
+          <select>
+            <option value="pendiente">Pendiente</option>
+            <option value="en-progreso">En progreso</option>
+            <option value="completado">Completado</option>
+          </select>
+        </td>
+        <td>
+          <button type="button" class="icon-button" data-action="remove-row" aria-label="Eliminar actividad">✕</button>
+        </td>
+      </tr>
+    </template>
+
+    <script src="assets/script.js" defer></script>
+  </body>
+</html>
