@@ -1095,6 +1095,29 @@ function initialize() {
   catalogCancelButton.addEventListener('click', handleCatalogCancel);
   catalogListEl.addEventListener('click', handleCatalogListClick);
 
+  const navToggle = document.querySelector('.nav-toggle');
+  const nav = document.querySelector('.app-nav');
+  if (navToggle && nav) {
+    const toggleNavigation = () => {
+      const isOpen = navToggle.getAttribute('aria-expanded') === 'true';
+      navToggle.setAttribute('aria-expanded', String(!isOpen));
+      nav.classList.toggle('app-nav--open', !isOpen);
+      document.body.classList.toggle('nav-open', !isOpen);
+    };
+
+    navToggle.addEventListener('click', toggleNavigation);
+
+    nav.querySelectorAll('a').forEach((link) => {
+      link.addEventListener('click', () => {
+        if (window.matchMedia('(max-width: 720px)').matches) {
+          navToggle.setAttribute('aria-expanded', 'false');
+          nav.classList.remove('app-nav--open');
+          document.body.classList.remove('nav-open');
+        }
+      });
+    });
+  }
+
   loadFromStorage();
   loadCatalogFromStorage();
   renderCatalog();

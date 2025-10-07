@@ -50,62 +50,108 @@ main {
 }
 
 .app-header {
-  width: min(1080px, 92vw);
+  width: min(1100px, 94vw);
   margin: 1.6rem auto 0;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 1.5rem;
-  padding: 1.25rem 1.8rem;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(15, 63, 70, 0.08);
+  gap: clamp(1.2rem, 3vw, 2.4rem);
+  padding: clamp(1rem, 2vw, 1.6rem) clamp(1.2rem, 3vw, 2.4rem);
+  background: linear-gradient(135deg, rgba(15, 63, 70, 0.94) 0%, rgba(10, 44, 49, 0.96) 65%);
   border-radius: var(--radius-lg);
-  box-shadow: 0 18px 38px rgba(15, 63, 70, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 28px 50px rgba(15, 63, 70, 0.32);
   position: sticky;
   top: 1.4rem;
   z-index: 20;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(12px);
 }
 
 .branding {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 1rem;
+  gap: 1.1rem;
+  color: #f6f1e6;
 }
+
+.nav-toggle {
+  display: none;
+  border: none;
+  background: transparent;
+  padding: 0.35rem;
+  border-radius: 10px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  flex-direction: column;
+  transition: background 0.2s ease;
+}
+
+.nav-toggle:focus-visible,
+.nav-toggle:hover {
+  background: rgba(15, 63, 70, 0.08);
+}
+
+.nav-toggle__bar {
+  width: 22px;
+  height: 2px;
+  background: var(--color-primary);
+  border-radius: 999px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.nav-toggle__label {
+  font-size: 0;
+  line-height: 0;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  overflow: hidden;
+}
+
 
 .logo {
   width: 58px;
   height: 58px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #0f3f46, #10545c);
-  color: #f4efe4;
+  border-radius: 16px;
+  background: rgba(244, 239, 228, 0.16);
+  color: #f6f1e6;
   display: grid;
   place-items: center;
   font-family: var(--font-heading);
   font-weight: 700;
   letter-spacing: 0.08em;
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.16), 0 14px 28px rgba(15, 63, 70, 0.2);
+  border: 1px solid rgba(244, 239, 228, 0.45);
+  box-shadow: inset 0 0 0 2px rgba(244, 239, 228, 0.25), 0 18px 32px rgba(8, 24, 27, 0.4);
 }
 
-.brand-text h1 {
+ .brand-text h1 {
   margin: 0;
   font-family: var(--font-heading);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  font-size: clamp(1.1rem, 3vw, 1.6rem);
+  font-size: clamp(1.2rem, 3.2vw, 1.8rem);
+  color: #fffdf7;
 }
 
-.brand-text p {
+ .brand-text p {
   margin: 0.2rem 0 0;
-  color: var(--color-text-muted);
+  color: rgba(244, 239, 228, 0.75);
   font-weight: 500;
 }
 
 .app-nav {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
+  justify-content: flex-end;
+  gap: clamp(0.6rem, 2vw, 1.3rem);
   font-family: var(--font-heading);
   font-size: 0.82rem;
   text-transform: uppercase;
@@ -114,16 +160,21 @@ main {
 
 .app-nav a {
   text-decoration: none;
-  padding: 0.55rem 0.95rem;
+  padding: 0.6rem 1.15rem;
   border-radius: 999px;
-  border: 1px solid transparent;
-  transition: all 0.2s ease;
+  border: 1px solid rgba(244, 239, 228, 0.16);
+  background: rgba(244, 239, 228, 0.08);
+  color: rgba(244, 239, 228, 0.9);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
 }
 
 .app-nav a:hover,
 .app-nav a:focus-visible {
-  border-color: rgba(15, 63, 70, 0.25);
-  background: rgba(15, 63, 70, 0.08);
+  transform: translateY(-1px);
+  box-shadow: 0 18px 32px rgba(8, 24, 27, 0.45);
+  background: rgba(244, 239, 228, 0.2);
+  border-color: rgba(244, 239, 228, 0.6);
+  color: #fffdf7;
 }
 
 .card {
@@ -167,6 +218,10 @@ main {
   justify-content: flex-end;
   border-top: 1px solid rgba(15, 63, 70, 0.08);
   background: linear-gradient(180deg, rgba(242, 239, 233, 0.4) 0%, rgba(255, 255, 255, 0.9) 100%);
+}
+
+.card__footer .button {
+  min-width: 180px;
 }
 
 .form-grid {
@@ -217,6 +272,10 @@ textarea:focus {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 1rem;
+}
+
+.section-actions .button {
+  min-width: 180px;
 }
 
 .table-wrapper {
@@ -616,13 +675,43 @@ tfoot td {
 
   .app-nav {
     flex-wrap: wrap;
+    display: none;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    border-top: 1px solid rgba(15, 63, 70, 0.08);
+    padding-top: 0.8rem;
+  }
+
+  .app-nav a {
+    white-space: normal;
+  }
+
+  .app-nav--open {
+    display: flex;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+    align-self: flex-end;
+  }
+
+  .app-header {
+    gap: 0.6rem;
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .app-nav a {
-    width: calc(50% - 0.35rem);
-    text-align: center;
+    flex: 0 0 auto;
+    width: 100%;
+    padding: 0.75rem 0.95rem;
+    text-align: left;
+    border-radius: 10px;
+    margin-bottom: 0.35rem;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(15, 63, 70, 0.08);
   }
 
   table,
@@ -683,5 +772,74 @@ tfoot td {
   .catalog-card__placeholder {
     width: 100%;
     height: 180px;
+  }
+}
+
+@media (max-width: 540px) {
+  .app-header {
+    position: static;
+  }
+
+  .card__header {
+    padding: 1.4rem 1.4rem 0;
+  }
+
+  .card__body {
+    padding: 0 1.4rem 1.6rem;
+  }
+
+  .card__footer {
+    padding: 1.2rem 1.4rem 1.6rem;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .card__footer .button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .section-actions {
+    justify-content: stretch;
+  }
+
+  .section-actions .button {
+    width: 100%;
+  }
+
+  .summary-controls {
+    padding: 1.2rem;
+  }
+
+  .summary-table tbody tr {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.55rem 0;
+  }
+
+  .summary-table td {
+    border: none;
+    padding: 0;
+  }
+
+  .form-grid {
+    gap: 1rem;
+  }
+
+  textarea {
+    min-height: 100px;
+  }
+
+  .catalog-form {
+    padding: 1.4rem;
+  }
+
+  .catalog-form__actions .button {
+    width: 100%;
+  }
+
+  .catalog-card {
+    box-shadow: 0 12px 24px rgba(15, 63, 70, 0.12);
   }
 }
