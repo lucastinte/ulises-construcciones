@@ -1116,6 +1116,23 @@ function initialize() {
         }
       });
     });
+
+    const desktopQuery = window.matchMedia('(min-width: 961px)');
+    const handleDesktopChange = (event) => {
+      if (event.matches) {
+        navToggle.setAttribute('aria-expanded', 'false');
+        nav.classList.remove('app-nav--open');
+        document.body.classList.remove('nav-open');
+      }
+    };
+
+    if (typeof desktopQuery.addEventListener === 'function') {
+      desktopQuery.addEventListener('change', handleDesktopChange);
+    } else if (typeof desktopQuery.addListener === 'function') {
+      desktopQuery.addListener(handleDesktopChange);
+    }
+
+    handleDesktopChange(desktopQuery);
   }
 
   loadFromStorage();
