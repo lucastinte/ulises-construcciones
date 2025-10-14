@@ -12,13 +12,18 @@ const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT || 3000;
 const MAX_UPLOAD_MB = Number.parseInt(process.env.MAX_UPLOAD_MB || '15', 10);
 const UPLOAD_LIMIT_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : __dirname;
 
-const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+const uploadsDir = path.join(DATA_DIR, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-const dbPath = path.join(__dirname, 'storage.db');
+const dbPath = path.join(DATA_DIR, 'storage.db');
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.exec(`
