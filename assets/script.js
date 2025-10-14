@@ -80,10 +80,25 @@ const catalogCountEl = document.getElementById('catalogCount');
 const catalogFields = {
   name: document.getElementById('catalogName'),
   category: document.getElementById('catalogCategory'),
-  image: document.getElementById('catalogImage'),
   description: document.getElementById('catalogDescription'),
-  plan: document.getElementById('catalogPlan'),
 };
+
+const catalogImageUrlInput = document.getElementById('catalogImageUrl');
+const catalogDocumentUrlInput = document.getElementById('catalogDocumentUrl');
+const catalogImagesListEl = document.getElementById('catalogImagesList');
+const catalogDocumentsListEl = document.getElementById('catalogDocumentsList');
+
+const catalogUploadButtons = document.querySelectorAll('[data-upload-target]');
+const catalogMediaAddButtons = document.querySelectorAll('[data-media-add]');
+const catalogFileInputs = {
+  images: document.getElementById('catalogImagesFile'),
+  documents: document.getElementById('catalogDocumentsFile'),
+};
+const driveUploadConfig = {
+  endpoint: '/api/upload',
+};
+
+const MAX_MEDIA_ITEMS = 5;
 
 const summaryValues = {
   materials: 0,
@@ -99,9 +114,299 @@ const storageKey = 'ulises-construcciones-budget-v2';
 let storageAvailable = false;
 let saveTimeout;
 
-const catalogStorageKey = 'ulises-construcciones-catalog-v1';
 let catalogEntries = [];
 let catalogEditingId = null;
+let catalogLoading = false;
+let catalogLoadError = null;
+let catalogImages = [];
+let catalogDocuments = [];
+
+function setCatalogLoadingState(isLoading, errorMessage = null) {
+  catalogLoading = isLoading;
+  catalogLoadError = errorMessage;
+}
+
+function sanitizeMediaUrl(value) {
+  return String(value ?? '').trim();
+}
+
+function getMediaState(type) {
+  return type === 'documents' ? catalogDocuments : catalogImages;
+}
+
+function getMediaListElement(type) {
+  return type === 'documents' ? catalogDocumentsListEl : catalogImagesListEl;
+}
+
+function getFileDisplayName(url, fallbackLabel) {
+  const fallback = fallbackLabel || 'Archivo';
+  if (!url) return fallback;
+  const safeUrl = String(url);
+  const decode = (value) => {
+    try {
+      return decodeURIComponent(value);
+    } catch (_error) {
+      return value;
+    }
+  };
+  try {
+    const parsed = new URL(safeUrl, window.location.origin);
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (segments.length > 0) {
+      return decode(segments[segments.length - 1]) || fallback;
+    }
+  } catch (_error) {
+    const parts = safeUrl.split('/').filter(Boolean);
+    if (parts.length > 0) {
+      return decode(parts[parts.length - 1]) || fallback;
+    }
+  }
+  return fallback;
+}
+
+function renderMediaList(type) {
+  const list = getMediaState(type);
+  const listEl = getMediaListElement(type);
+  if (!listEl) return;
+
+  if (!list || list.length === 0) {
+    listEl.innerHTML = '<p class="catalog-media-list__empty">Aún no agregaste archivos.</p>';
+    return;
+  }
+
+  listEl.innerHTML = list
+    .map((url, index) => {
+      const safeUrl = escapeHtml(url);
+      const displayName = escapeHtml(
+        getFileDisplayName(url, type === 'images' ? `Imagen ${index + 1}` : `Documento ${index + 1}`)
+      );
+      if (type === 'images') {
+        return `
+          <div class="catalog-media-list__item" data-type="images" data-index="${index}">
+            <div class="catalog-media-list__preview">
+              <img src="${safeUrl}" alt="Imagen ${index + 1}" loading="lazy" onerror="this.src='';this.closest('.catalog-media-list__item').classList.add('catalog-media-list__item--broken');" />
+            </div>
+            <div class="catalog-media-list__info">
+              <span class="catalog-media-list__url" title="${safeUrl}">${displayName}</span>
+              <button type="button" class="catalog-media-list__remove" data-media-remove="images" data-index="${index}" aria-label="Quitar imagen ${index + 1}">Quitar</button>
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div class="catalog-media-list__item" data-type="documents" data-index="${index}">
+          <div class="catalog-media-list__preview catalog-media-list__preview--doc">PDF</div>
+          <div class="catalog-media-list__info">
+            <span class="catalog-media-list__url" title="${safeUrl}">${displayName}</span>
+            <button type="button" class="catalog-media-list__remove" data-media-remove="documents" data-index="${index}" aria-label="Quitar documento ${index + 1}">Quitar</button>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+}
+
+function setCatalogMedia(type, urls) {
+  const list = getMediaState(type);
+  list.length = 0;
+  (Array.isArray(urls) ? urls : [])
+    .map((value) => sanitizeMediaUrl(value))
+    .filter(Boolean)
+    .slice(0, MAX_MEDIA_ITEMS)
+    .forEach((value) => list.push(value));
+  renderMediaList(type);
+}
+
+function addMediaUrl(type, url) {
+  const cleanUrl = sanitizeMediaUrl(url);
+  if (!cleanUrl) return;
+  const list = getMediaState(type);
+  if (list.includes(cleanUrl)) {
+    window.alert('El archivo ya fue agregado.');
+    return;
+  }
+  if (list.length >= MAX_MEDIA_ITEMS) {
+    window.alert(`Puedes agregar hasta ${MAX_MEDIA_ITEMS} archivos en esta sección.`);
+    return;
+  }
+  list.push(cleanUrl);
+  renderMediaList(type);
+}
+
+function removeMediaAt(type, index) {
+  const list = getMediaState(type);
+  if (!Array.isArray(list)) return;
+  list.splice(index, 1);
+  renderMediaList(type);
+}
+
+function handleMediaAdd(type) {
+  const input = type === 'documents' ? catalogDocumentUrlInput : catalogImageUrlInput;
+  if (!input) return;
+  const value = input.value;
+  if (!value.trim()) {
+    input.focus();
+    return;
+  }
+  addMediaUrl(type, value);
+  input.value = '';
+  input.focus();
+}
+
+function handleMediaListClick(event) {
+  const button = event.target.closest('[data-media-remove]');
+  if (!button) return;
+  const type = button.dataset.mediaRemove === 'documents' ? 'documents' : 'images';
+  const index = Number.parseInt(button.dataset.index, 10);
+  if (Number.isNaN(index)) return;
+  removeMediaAt(type, index);
+}
+
+async function refreshCatalogEntries() {
+  setCatalogLoadingState(true);
+  renderCatalog();
+
+  try {
+    const response = await fetch('/api/catalog');
+    if (!response.ok) {
+      throw new Error(`Error HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    if (!data || data.ok !== true || !Array.isArray(data.items)) {
+      throw new Error('Respuesta inválida del servidor.');
+    }
+    catalogEntries = data.items;
+    setCatalogLoadingState(false);
+  } catch (error) {
+    console.error('Error al cargar el catálogo.', error);
+    catalogEntries = [];
+    setCatalogLoadingState(false, 'No se pudo cargar el catálogo. Intenta nuevamente.');
+  }
+
+  renderCatalog();
+}
+
+async function persistCatalogEntry(entry, isUpdate) {
+  const url = isUpdate ? `/api/catalog/${encodeURIComponent(entry.id)}` : '/api/catalog';
+  const method = isUpdate ? 'PUT' : 'POST';
+
+  const response = await fetch(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(entry),
+  });
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || data.ok !== true || !data.item) {
+    const message = (data && data.error) || `Error HTTP ${response.status}`;
+    throw new Error(message);
+  }
+
+  return data.item;
+}
+
+async function removeCatalogEntry(id) {
+  const response = await fetch(`/api/catalog/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || (data && data.ok === false)) {
+    const message = (data && data.error) || `Error HTTP ${response.status}`;
+    throw new Error(message);
+  }
+}
+
+function buildDefinitionList(items) {
+  const meaningful = items.filter((item) => item.value);
+  if (meaningful.length === 0) {
+    return '<p class="catalog-detail__empty">Sin información disponible.</p>';
+  }
+  return `
+    <dl class="catalog-detail__list">
+      ${meaningful
+        .map(
+          (item) => `
+            <div class="catalog-detail__list-item">
+              <dt>${escapeHtml(item.label)}</dt>
+              <dd>${escapeHtml(item.value).replace(/\n/g, '<br />')}</dd>
+            </div>
+          `
+        )
+        .join('')}
+    </dl>
+  `;
+}
+
+function buildSummaryMarkup(entry) {
+  const summary = entry.summary || {};
+  const additionals = entry.additionals || {};
+  const marginRateValue = Number.parseFloat(additionals.marginRate);
+  const marginRateLine = Number.isFinite(marginRateValue)
+    ? {
+        label: 'Margen (%)',
+        value: `${marginRateValue.toFixed(2).replace(/\.00$/, '')}%`,
+      }
+    : null;
+  const lines = [
+    { label: 'Materiales', value: formatCurrency(summary.materials ?? 0) },
+    { label: 'Mano de obra', value: formatCurrency(summary.labor ?? 0) },
+    { label: 'Insumos', value: formatCurrency(summary.supplies ?? additionals.supplies ?? 0) },
+    { label: 'Flete', value: formatCurrency(summary.freight ?? additionals.freight ?? 0) },
+    { label: 'Margen', value: formatCurrency(summary.margin ?? 0) },
+    marginRateLine,
+    { label: 'Total estimado', value: formatCurrency(summary.total ?? 0), strong: true },
+  ].filter(Boolean);
+
+  if (lines.length === 0) {
+    return '<p class="catalog-detail__empty">Sin resumen disponible.</p>';
+  }
+
+  return `
+    <ul class="catalog-detail__summary">
+      ${lines
+        .map(
+          (item) => `
+            <li>
+              <span>${escapeHtml(item.label)}</span>
+              <strong>${escapeHtml(item.value)}</strong>
+            </li>
+          `
+        )
+        .join('')}
+    </ul>
+  `;
+}
+
+function buildBudgetList(items, emptyMessage) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return `<p class="catalog-detail__empty">${escapeHtml(emptyMessage)}</p>`;
+  }
+
+  return `
+    <ul class="catalog-detail__items">
+      ${items
+        .map((item) => {
+          const concept = escapeHtml(item.concept || 'Sin concepto');
+          const quantity = escapeHtml(quantityFormatter.format(item.quantity ?? 0));
+          const unitCost = formatCurrency(item.unitCost ?? 0);
+          const total = formatCurrency(item.total ?? (item.quantity ?? 0) * (item.unitCost ?? 0));
+          return `
+            <li>
+              <div class="catalog-detail__item-name">${concept}</div>
+              <div class="catalog-detail__item-meta">
+                <span>Cant.: ${quantity}</span>
+                <span>Unit.: ${unitCost}</span>
+                <span>Total: ${total}</span>
+              </div>
+            </li>
+          `;
+        })
+        .join('')}
+    </ul>
+  `;
+}
 
 function formatCurrency(value) {
   return currencyFormatter.format(Number.isFinite(value) ? value : 0);
@@ -395,13 +700,6 @@ function createBudgetCode(dateValue) {
   return `${year}${month}${day}-${String(baseDate.getTime()).slice(-4)}`;
 }
 
-function createCatalogId() {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return `catalog-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-}
-
 function renderBudgetDocument(payload) {
   const project = payload.project || {};
   const additionals = payload.additionals || {};
@@ -466,60 +764,68 @@ function renderBudgetDocument(payload) {
     <meta charset="utf-8" />
     <title>Presupuesto - ${safeProjectName}</title>
     <style>
+      @import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;500;600;700&family=Montserrat:wght@500;600;700&display=swap');
       :root { color-scheme: light; font-family: 'Lato', 'Montserrat', sans-serif; }
+      @page { size: A4; margin: 12mm 12mm 14mm; }
       body {
         margin: 0;
-        background: #f1ece4;
+        background: radial-gradient(circle at top left, rgba(15, 63, 70, 0.12), transparent 48%),
+          radial-gradient(circle at bottom right, rgba(193, 164, 123, 0.18), transparent 44%),
+          #f4f5f6;
         color: #172327;
       }
       .document {
-        max-width: 900px;
-        margin: 3rem auto;
+        width: calc(210mm - 24mm);
+        max-width: calc(100vw - 40px);
+        margin: 16mm auto;
         background: #fff;
-        box-shadow: 0 30px 60px rgba(15, 63, 70, 0.18);
+        border-radius: 10px;
+        box-shadow: 0 34px 68px rgba(9, 38, 43, 0.2);
+        overflow: hidden;
       }
       .hero {
         display: flex;
         flex-wrap: wrap;
+        padding: 28px 34px 22px;
       }
       .hero__brand {
         background: #0f3f46;
         color: #f4efe4;
-        padding: 32px 30px;
-        width: 280px;
+        padding: 26px 24px;
+        width: 260px;
         display: flex;
         flex-direction: column;
-        gap: 1.1rem;
+        gap: 0.9rem;
       }
       .hero__brand h1 {
         margin: 0;
         font-family: 'Montserrat', sans-serif;
-        font-size: 1.3rem;
+        font-size: 1.22rem;
         letter-spacing: 0.12em;
         text-transform: uppercase;
       }
       .hero__brand p {
         margin: 0;
-        letter-spacing: 0.16em;
+        letter-spacing: 0.14em;
         text-transform: uppercase;
-        font-size: 0.82rem;
+        font-size: 0.78rem;
       }
       .hero__brand span {
-        font-size: 0.82rem;
+        font-size: 0.78rem;
         letter-spacing: 0.04em;
       }
       .hero__meta {
         flex: 1;
-        padding: 34px 40px;
+        padding: 24px 30px;
         background: linear-gradient(180deg, rgba(15, 63, 70, 0.06) 0%, rgba(255, 255, 255, 0.95) 55%);
         display: grid;
-        gap: 1.1rem;
+        gap: 0.9rem;
       }
       .hero__title {
         font-family: 'Montserrat', sans-serif;
         text-transform: uppercase;
         letter-spacing: 0.14em;
-        font-size: 1.8rem;
+        font-size: 1.6rem;
         color: #0f3f46;
         margin: 0;
       }
@@ -528,41 +834,41 @@ function renderBudgetDocument(payload) {
         letter-spacing: 0.12em;
         text-transform: uppercase;
         color: #c99d3b;
-        font-size: 0.9rem;
+        font-size: 0.85rem;
       }
       .meta-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 0.6rem 1.2rem;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 0.55rem 1rem;
         margin: 0;
         padding: 0;
         list-style: none;
       }
       .meta-grid li {
         display: grid;
-        gap: 0.25rem;
+        gap: 0.22rem;
       }
       .meta-label {
         font-family: 'Montserrat', sans-serif;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        font-size: 0.72rem;
+        font-size: 0.68rem;
         color: #708083;
       }
       .meta-value {
-        font-size: 0.98rem;
+        font-size: 0.94rem;
       }
       .section {
-        padding: 32px 40px;
+        padding: 26px 34px;
         border-top: 1px solid rgba(15, 63, 70, 0.08);
       }
       .section h2 {
-        margin: 0 0 1.4rem;
+        margin: 0 0 1.2rem;
         font-family: 'Montserrat', sans-serif;
-        letter-spacing: 0.12em;
+        letter-spacing: 0.11em;
         text-transform: uppercase;
         color: #0f3f46;
-        font-size: 1rem;
+        font-size: 0.95rem;
       }
       table {
         width: 100%;
@@ -571,15 +877,15 @@ function renderBudgetDocument(payload) {
       thead th {
         background: #0f3f46;
         color: #f4efe4;
-        padding: 0.85rem 1rem;
+        padding: 0.7rem 0.85rem;
         font-family: 'Montserrat', sans-serif;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        font-size: 0.75rem;
+        font-size: 0.72rem;
         text-align: left;
       }
       tbody td {
-        padding: 0.85rem 1rem;
+        padding: 0.68rem 0.85rem;
         border-bottom: 1px solid rgba(15, 63, 70, 0.08);
       }
       tbody tr:nth-child(even) td {
@@ -592,11 +898,11 @@ function renderBudgetDocument(payload) {
       }
       .item__category {
         display: block;
-        font-size: 0.7rem;
+        font-size: 0.68rem;
         letter-spacing: 0.12em;
         text-transform: uppercase;
         color: #6d7d80;
-        margin-bottom: 0.2rem;
+        margin-bottom: 0.18rem;
       }
       .item__concept {
         font-weight: 600;
@@ -609,17 +915,17 @@ function renderBudgetDocument(payload) {
       .summary-table {
         width: 100%;
         border-collapse: collapse;
-        margin-top: 1.6rem;
+        margin-top: 1.4rem;
       }
       .summary-table tr td:first-child {
         text-transform: uppercase;
         letter-spacing: 0.08em;
         font-family: 'Montserrat', sans-serif;
-        font-size: 0.78rem;
+        font-size: 0.75rem;
         color: #5a6567;
       }
       .summary-table td {
-        padding: 0.75rem 0.2rem;
+        padding: 0.6rem 0.2rem;
         border-bottom: 1px solid rgba(15, 63, 70, 0.08);
       }
       .summary-table td:last-child {
@@ -632,57 +938,57 @@ function renderBudgetDocument(payload) {
       }
       .details-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 1.4rem 2rem;
-        margin-top: 2.4rem;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1.1rem 1.6rem;
+        margin-top: 2rem;
       }
       .details-column h3 {
-        margin: 0 0 0.8rem;
+        margin: 0 0 0.6rem;
         font-family: 'Montserrat', sans-serif;
         letter-spacing: 0.12em;
         text-transform: uppercase;
-        font-size: 0.82rem;
+        font-size: 0.8rem;
         color: #c99d3b;
       }
       .details-column ul {
         margin: 0;
-        padding-left: 1.1rem;
+        padding-left: 1rem;
         display: grid;
-        gap: 0.35rem;
-        font-size: 0.92rem;
+        gap: 0.3rem;
+        font-size: 0.9rem;
       }
       .details-column p {
-        margin: 0.35rem 0;
-        font-size: 0.92rem;
+        margin: 0.25rem 0;
+        font-size: 0.9rem;
       }
       .signature-block {
-        margin-top: 2.4rem;
+        margin-top: 2rem;
         display: flex;
         flex-direction: column;
-        gap: 0.35rem;
-        max-width: 320px;
+        gap: 0.3rem;
+        max-width: 300px;
       }
       .signature-line {
         height: 1px;
         background: rgba(15, 63, 70, 0.4);
-        margin: 1rem 0 0.4rem;
+        margin: 0.8rem 0 0.35rem;
       }
       .signature-name {
         font-family: 'Montserrat', sans-serif;
         font-weight: 600;
       }
       .signature-role {
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         color: #5a6567;
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
       .footer {
-        padding: 0 40px 40px;
+        padding: 0 34px 34px;
         display: flex;
         justify-content: space-between;
         align-items: flex-end;
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         color: #5a6567;
       }
       .footer strong {
@@ -692,8 +998,19 @@ function renderBudgetDocument(payload) {
       }
       @media print {
         body { background: #fff; }
-        .document { box-shadow: none; margin: 0; }
-        .section { page-break-inside: avoid; }
+        .document { box-shadow: none; margin: 0 auto; width: auto; max-width: none; border-radius: 0; }
+        .hero { padding: 18px 20px 14px; }
+        .hero__brand { padding: 18px 18px; width: 220px; gap: 0.7rem; }
+        .hero__meta { padding: 18px 22px; gap: 0.7rem; }
+        .section { padding: 18px 22px; page-break-inside: avoid; }
+        table { font-size: 0.92em; }
+        thead th { padding: 0.55rem 0.7rem; }
+        tbody td { padding: 0.55rem 0.7rem; }
+        .summary-table { margin-top: 1.1rem; }
+        .summary-table td { padding: 0.4rem 0; }
+        .details-grid { gap: 0.9rem 1.4rem; margin-top: 1.3rem; }
+        .signature-block { margin-top: 1.4rem; }
+        .footer { padding: 0 22px 22px; }
       }
     </style>
   </head>
@@ -848,6 +1165,52 @@ function downloadBudget() {
   reportWindow.focus();
 }
 
+function sanitizeFileName(fileName) {
+  return String(fileName || 'archivo')
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9_.-]/g, '')
+    .replace(/-+/g, '-')
+    .slice(-120) || `archivo-${Date.now()}`;
+}
+
+async function uploadFileToDrive(file, folder) {
+  const targetEndpoint = driveUploadConfig.endpoint;
+  if (!targetEndpoint) {
+    throw new Error('Servicio de subida no configurado.');
+  }
+  const cleanName = sanitizeFileName(file.name);
+  const folderPrefix = folder ? `${folder}/` : '';
+  const fileName = `${folderPrefix}${Date.now()}-${cleanName}`;
+  const formData = new FormData();
+  formData.append('filename', fileName);
+  formData.append('file', file);
+  if (folder) {
+    formData.append('category', folder);
+  }
+
+  const response = await fetch(targetEndpoint, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || `Error HTTP ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (!result || result.ok !== true) {
+    throw new Error(result?.error || 'Respuesta inválida de Apps Script.');
+  }
+
+  return {
+    name: result.name || fileName,
+    viewUrl: result.url,
+    downloadUrl: result.download || result.url,
+  };
+}
+
 function resetCatalogForm() {
   catalogEditingId = null;
   catalogSubmitButton.textContent = 'Guardar presupuesto actual';
@@ -855,37 +1218,31 @@ function resetCatalogForm() {
   Object.values(catalogFields).forEach((field) => {
     field.value = '';
   });
-}
-
-function loadCatalogFromStorage() {
-  if (!storageAvailable) return;
-  const stored = window.localStorage.getItem(catalogStorageKey);
-  if (!stored) return;
-
-  try {
-    const parsed = JSON.parse(stored);
-    if (Array.isArray(parsed)) {
-      catalogEntries = parsed;
-    }
-  } catch (error) {
-    console.warn('No se pudo cargar el catálogo guardado.', error);
-  }
-}
-
-function saveCatalogToStorage() {
-  if (!storageAvailable) return;
-  try {
-    window.localStorage.setItem(catalogStorageKey, JSON.stringify(catalogEntries));
-  } catch (error) {
-    console.warn('No se pudo guardar el catálogo.', error);
-  }
+  setCatalogMedia('images', []);
+  setCatalogMedia('documents', []);
+  if (catalogImageUrlInput) catalogImageUrlInput.value = '';
+  if (catalogDocumentUrlInput) catalogDocumentUrlInput.value = '';
 }
 
 function renderCatalog() {
   catalogCountEl.textContent = catalogEntries.length;
+
+  if (catalogLoading) {
+    catalogEmptyState.style.display = 'none';
+    catalogListEl.innerHTML =
+      '<p class="catalog-loading">Cargando plantillas guardadas…</p>';
+    return;
+  }
+
+  if (catalogLoadError) {
+    catalogEmptyState.style.display = 'none';
+    catalogListEl.innerHTML = `<p class="catalog-error">${escapeHtml(catalogLoadError)}</p>`;
+    return;
+  }
+
   if (catalogEntries.length === 0) {
-    catalogEmptyState.style.display = 'block';
     catalogListEl.innerHTML = '';
+    catalogEmptyState.style.display = 'block';
     return;
   }
 
@@ -894,41 +1251,37 @@ function renderCatalog() {
 
   catalogEntries.forEach((entry) => {
     const card = document.createElement('article');
-    card.className = 'catalog-card';
+    card.className = 'catalog-card catalog-card--compact';
     card.dataset.id = entry.id;
 
-    let mediaMarkup = '';
-    if (entry.image) {
-      const safeImage = escapeHtml(entry.image);
-      const safeAlt = escapeHtml(entry.name || 'Proyecto');
-      mediaMarkup = `<img src="${safeImage}" alt="${safeAlt}" class="catalog-card__image" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'catalog-card__placeholder', textContent: 'SIN IMG'}));" />`;
-    } else {
-      mediaMarkup = '<div class="catalog-card__placeholder">SIN IMAGEN</div>';
-    }
-
-    const planMarkup = entry.plan
-      ? `<a class="catalog-card__link" href="${escapeHtml(entry.plan)}" target="_blank" rel="noopener">Ver plano / documentación</a>`
-      : '';
-
-    const totalValue = entry.summary ? formatCurrency(entry.summary.total) : formatCurrency(0);
     const updatedLabel = entry.updatedAt ? formatDate(entry.updatedAt) : formatDate(entry.createdAt);
+    const totalValue = entry.summary ? formatCurrency(entry.summary.total) : formatCurrency(0);
+    const attachmentsMeta = [];
+    if (Array.isArray(entry.images) && entry.images.length) {
+      attachmentsMeta.push(`${entry.images.length} img`);
+    }
+    if (Array.isArray(entry.documents) && entry.documents.length) {
+      attachmentsMeta.push(`${entry.documents.length} doc`);
+    }
+    const attachmentsText = attachmentsMeta.length ? attachmentsMeta.join(' · ') : 'Sin adjuntos';
+    const encodedId = encodeURIComponent(entry.id);
+    const detailUrl = `catalog-detail.html?id=${encodedId}`;
 
     card.innerHTML = `
-      ${mediaMarkup}
-      <div class="catalog-card__body">
+      <div class="catalog-card__header">
         <h4 class="catalog-card__title">${escapeHtml(entry.name)}</h4>
-        <div class="catalog-card__meta">
-          <span>Categoria: <strong>${escapeHtml(entry.category || 'Sin categoría')}</strong></span>
-          <span>Total: <strong>${totalValue}</strong></span>
-          <span>Actualizado: ${escapeHtml(updatedLabel)}</span>
-        </div>
-        <p class="catalog-card__description">${escapeHtml(entry.description || 'Sin descripción.')}</p>
-        ${planMarkup}
-        <div class="catalog-card__actions">
-          <button type="button" class="button" data-action="apply" data-id="${entry.id}">Aplicar al presupuesto</button>
-          <button type="button" class="button button--ghost" data-action="edit" data-id="${entry.id}">Editar</button>
-          <button type="button" class="button button--secondary" data-action="delete" data-id="${entry.id}">Eliminar</button>
-        </div>
+        <span class="catalog-card__badge">${escapeHtml(entry.category || 'Sin categoría')}</span>
+      </div>
+      <div class="catalog-card__meta">
+        <span>Actualizado: ${escapeHtml(updatedLabel)}</span>
+        <span>Total estimado: <strong>${totalValue}</strong></span>
+        <span>${escapeHtml(attachmentsText)}</span>
+      </div>
+      <div class="catalog-card__actions">
+        <a href="${detailUrl}" class="button button--ghost">Ver detalle</a>
+        <button type="button" class="button" data-action="apply" data-id="${entry.id}">Aplicar</button>
+        <button type="button" class="button button--ghost" data-action="edit" data-id="${entry.id}">Editar</button>
+        <button type="button" class="button button--secondary" data-action="delete" data-id="${entry.id}">Eliminar</button>
       </div>
     `;
 
@@ -936,7 +1289,7 @@ function renderCatalog() {
   });
 }
 
-function handleCatalogSubmit(event) {
+async function handleCatalogSubmit(event) {
   event.preventDefault();
   const nameValue = catalogFields.name.value.trim() || projectFields.projectName.value.trim();
   if (!nameValue) {
@@ -945,35 +1298,38 @@ function handleCatalogSubmit(event) {
     return;
   }
 
-  const entry = {
-    id: catalogEditingId || createCatalogId(),
+  const budgetData = collectBudgetData();
+  const payload = {
     name: nameValue,
     category: catalogFields.category.value.trim(),
     description: catalogFields.description.value.trim(),
-    image: catalogFields.image.value.trim(),
-    plan: catalogFields.plan.value.trim(),
+    images: [...catalogImages],
+    documents: [...catalogDocuments],
     project: getProjectData(),
-    budget: collectBudgetData(),
+    budget: {
+      materials: budgetData.materials || [],
+      labor: budgetData.labor || [],
+    },
     additionals: getAdditionals(),
     summary: { ...summaryValues },
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
   };
 
   if (catalogEditingId) {
-    const index = catalogEntries.findIndex((item) => item.id === catalogEditingId);
-    if (index !== -1) {
-      entry.createdAt = catalogEntries[index].createdAt || entry.createdAt;
-      catalogEntries[index] = entry;
-    }
-  } else {
-    catalogEntries.unshift(entry);
+    payload.id = catalogEditingId;
   }
 
-  saveCatalogToStorage();
-  renderCatalog();
-  resetCatalogForm();
-  window.alert('Plantilla guardada en el catálogo.');
+  catalogSubmitButton.disabled = true;
+  try {
+    const savedEntry = await persistCatalogEntry(payload, Boolean(catalogEditingId));
+    await refreshCatalogEntries();
+    resetCatalogForm();
+    window.location.href = `catalog-detail.html?id=${encodeURIComponent(savedEntry.id)}`;
+  } catch (error) {
+    console.error('Error al guardar la plantilla.', error);
+    window.alert(error.message || 'No se pudo guardar la plantilla.');
+  } finally {
+    catalogSubmitButton.disabled = false;
+  }
 }
 
 function handleCatalogCancel() {
@@ -984,8 +1340,8 @@ function fillCatalogForm(entry) {
   catalogFields.name.value = entry.name || '';
   catalogFields.category.value = entry.category || '';
   catalogFields.description.value = entry.description || '';
-  catalogFields.image.value = entry.image || '';
-  catalogFields.plan.value = entry.plan || '';
+  setCatalogMedia('images', entry.images || (entry.image ? [entry.image] : []));
+  setCatalogMedia('documents', entry.documents || (entry.plan ? [entry.plan] : []));
   catalogEditingId = entry.id;
   catalogSubmitButton.textContent = 'Actualizar plantilla';
   catalogForm.classList.add('is-editing');
@@ -1020,27 +1376,51 @@ function applyCatalogEntry(entry) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-function handleCatalogListClick(event) {
+function applyEntryFromSession() {
+  if (typeof window === 'undefined' || !window.sessionStorage) return;
+  const raw = window.sessionStorage.getItem('catalogEntryToApply');
+  if (!raw) return;
+  try {
+    const entry = JSON.parse(raw);
+    if (entry && typeof entry === 'object') {
+      applyCatalogEntry(entry);
+      window.alert('Plantilla aplicada al presupuesto.');
+    }
+  } catch (error) {
+    console.warn('No se pudo aplicar la plantilla enviada desde el detalle.', error);
+  } finally {
+    window.sessionStorage.removeItem('catalogEntryToApply');
+  }
+}
+
+async function handleCatalogListClick(event) {
   const button = event.target.closest('button[data-action]');
   if (!button) return;
   const id = button.dataset.id;
-  const entry = catalogEntries.find((item) => item.id === id);
-  if (!entry) return;
-
   const action = button.dataset.action;
+  const entry = catalogEntries.find((item) => item.id === id);
+
+  if (!entry) return;
 
   if (action === 'apply') {
     applyCatalogEntry(entry);
   } else if (action === 'edit') {
     fillCatalogForm(entry);
   } else if (action === 'delete') {
-    const confirmDelete = window.confirm(`¿Eliminar la plantilla "${entry.name}" del catálogo?`);
+    const confirmDelete = window.confirm(
+      `¿Eliminar la plantilla "${entry.name}" del catálogo?`
+    );
     if (!confirmDelete) return;
-    catalogEntries = catalogEntries.filter((item) => item.id !== id);
-    saveCatalogToStorage();
-    renderCatalog();
-    if (catalogEditingId === id) {
-      resetCatalogForm();
+
+    try {
+      await removeCatalogEntry(id);
+      if (catalogEditingId === id) {
+        resetCatalogForm();
+      }
+      await refreshCatalogEntries();
+    } catch (error) {
+      console.error('Error al eliminar la plantilla.', error);
+      window.alert(error.message || 'No se pudo eliminar la plantilla.');
     }
   }
 }
@@ -1054,6 +1434,111 @@ function handleSaveCatalogShortcut() {
     catalogFields.name.value = projectFields.projectName.value.trim();
   }
   catalogFields.name.focus();
+}
+
+function toggleUploadButtonState(target, isLoading) {
+  const button = document.querySelector(`[data-upload-target="${target}"]`);
+  if (!button) return;
+  button.disabled = isLoading;
+  button.classList.toggle('is-loading', isLoading);
+  if (isLoading) {
+    button.dataset.originalText = button.dataset.originalText || button.textContent;
+    button.textContent = 'Subiendo...';
+  } else if (button.dataset.originalText) {
+    button.textContent = button.dataset.originalText;
+    delete button.dataset.originalText;
+  }
+}
+
+async function handleCatalogFileUpload(target, file) {
+  const list = getMediaState(target);
+  if (Array.isArray(list) && list.length >= MAX_MEDIA_ITEMS) {
+    window.alert(`Puedes agregar hasta ${MAX_MEDIA_ITEMS} archivos en esta sección.`);
+    return;
+  }
+
+  const folder = target === 'documents' ? 'project_documents' : 'project_images';
+  toggleUploadButtonState(target, true);
+  try {
+    const { downloadUrl, viewUrl } = await uploadFileToDrive(file, folder);
+    const urlToUse = downloadUrl || viewUrl;
+    addMediaUrl(target, urlToUse);
+    window.alert('Archivo cargado correctamente.');
+  } catch (error) {
+    console.error('Error al subir archivo.', error);
+    window.alert('No se pudo subir el archivo. Revisa la consola para más detalles.');
+  } finally {
+    toggleUploadButtonState(target, false);
+  }
+}
+
+function setupCatalogUploads() {
+  const normalizeTarget = (value) => (value === 'documents' || value === 'document' ? 'documents' : 'images');
+
+  catalogUploadButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      if (!driveUploadConfig.endpoint) {
+        window.alert('El servicio de carga no está disponible en este momento.');
+        return;
+      }
+      const target = normalizeTarget(button.dataset.uploadTarget);
+      const input = catalogFileInputs[target];
+      if (input) {
+        input.click();
+      }
+    });
+  });
+
+  Object.entries(catalogFileInputs).forEach(([target, input]) => {
+    if (!input) return;
+    input.addEventListener('change', async () => {
+      const files = Array.from(input.files || []);
+      if (files.length === 0) return;
+      for (const file of files) {
+        if (getMediaState(target).length >= MAX_MEDIA_ITEMS) {
+          window.alert(`Puedes agregar hasta ${MAX_MEDIA_ITEMS} archivos en esta sección.`);
+          break;
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await handleCatalogFileUpload(target, file);
+      }
+      input.value = '';
+    });
+  });
+}
+
+function setupCatalogMediaControls() {
+  catalogMediaAddButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const type = button.dataset.mediaAdd === 'document' ? 'documents' : 'images';
+      handleMediaAdd(type);
+    });
+  });
+
+  if (catalogImageUrlInput) {
+    catalogImageUrlInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        handleMediaAdd('images');
+      }
+    });
+  }
+
+  if (catalogDocumentUrlInput) {
+    catalogDocumentUrlInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        handleMediaAdd('documents');
+      }
+    });
+  }
+
+  if (catalogImagesListEl) {
+    catalogImagesListEl.addEventListener('click', handleMediaListClick);
+  }
+  if (catalogDocumentsListEl) {
+    catalogDocumentsListEl.addEventListener('click', handleMediaListClick);
+  }
 }
 
 function initialize() {
@@ -1094,6 +1579,12 @@ function initialize() {
   catalogForm.addEventListener('submit', handleCatalogSubmit);
   catalogCancelButton.addEventListener('click', handleCatalogCancel);
   catalogListEl.addEventListener('click', handleCatalogListClick);
+
+  setupCatalogMediaControls();
+  setupCatalogUploads();
+
+  renderMediaList('images');
+  renderMediaList('documents');
 
   const navToggle = document.querySelector('.nav-toggle');
   const nav = document.querySelector('.app-nav');
@@ -1136,9 +1627,8 @@ function initialize() {
   }
 
   loadFromStorage();
-  loadCatalogFromStorage();
-  renderCatalog();
   updateSummary();
+  refreshCatalogEntries().finally(applyEntryFromSession);
 }
 
 document.addEventListener('DOMContentLoaded', initialize);

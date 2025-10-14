@@ -294,18 +294,58 @@
                 <span>Categoría</span>
                 <input type="text" id="catalogCategory" placeholder="Rejas, portones, barandas..." />
               </label>
-              <label>
-                <span>Imagen o plano (URL)</span>
-                <input type="url" id="catalogImage" placeholder="https://..." />
-              </label>
               <label class="form-grid__full">
-                <span>Descripción corta</span>
-                <input type="text" id="catalogDescription" placeholder="Materiales, medidas clave, observaciones." />
+                <span>Descripción breve</span>
+                <textarea
+                  id="catalogDescription"
+                  rows="3"
+                  placeholder="Materiales, medidas clave, observaciones."
+                ></textarea>
               </label>
-              <label class="form-grid__full">
-                <span>Planos / documentación (URL opcional)</span>
-                <input type="url" id="catalogPlan" placeholder="Enlace a plano PDF o carpeta compartida" />
-              </label>
+              <div class="catalog-media-group">
+                <span class="catalog-media-group__label">Imágenes (máx. 5)</span>
+                <div class="catalog-upload-control">
+                  <input type="url" id="catalogImageUrl" placeholder="https://..." />
+                  <button
+                    type="button"
+                    class="button button--ghost button--sm"
+                    data-media-add="image"
+                  >
+                    Agregar URL
+                  </button>
+                  <input type="file" id="catalogImagesFile" accept="image/*" hidden multiple />
+                  <button
+                    type="button"
+                    class="button button--ghost button--sm"
+                    data-upload-target="images"
+                  >
+                    Subir archivo
+                  </button>
+                </div>
+                <div id="catalogImagesList" class="catalog-media-list"></div>
+              </div>
+              <div class="catalog-media-group">
+                <span class="catalog-media-group__label">Planos / PDFs (máx. 5)</span>
+                <div class="catalog-upload-control catalog-upload-control--stretch">
+                  <input type="url" id="catalogDocumentUrl" placeholder="https://..." />
+                  <button
+                    type="button"
+                    class="button button--ghost button--sm"
+                    data-media-add="document"
+                  >
+                    Agregar URL
+                  </button>
+                  <input type="file" id="catalogDocumentsFile" accept=".pdf,application/pdf" hidden multiple />
+                  <button
+                    type="button"
+                    class="button button--ghost button--sm"
+                    data-upload-target="documents"
+                  >
+                    Subir archivo
+                  </button>
+                </div>
+                <div id="catalogDocumentsList" class="catalog-media-list"></div>
+              </div>
             </div>
             <div class="catalog-form__actions">
               <button type="submit" class="button" id="catalogSubmit">Guardar presupuesto actual</button>
@@ -329,6 +369,23 @@
         </div>
       </section>
     </main>
+
+    <div id="catalogDetail" class="catalog-detail-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="catalogDetailHeading">
+      <div class="catalog-detail">
+        <button
+          type="button"
+          class="catalog-detail__close"
+          id="catalogDetailClose"
+          aria-label="Cerrar detalle"
+        >
+          ×
+        </button>
+        <div id="catalogDetailEmpty" class="catalog-detail__empty-message">
+          <p>Selecciona una plantilla del listado para ver sus detalles.</p>
+        </div>
+        <div id="catalogDetailContent" class="catalog-detail__content"></div>
+      </div>
+    </div>
 
     <footer class="app-footer">
       <p>Ulises Construcciones · Gestión de presupuestos</p>

@@ -1,0 +1,13 @@
+[
+  {
+    "method": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "origin": ["http://localhost:3000"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Disposition",
+      "x-firebase-storage-result",
+      "Access-Control-Allow-Origin",
+      "Authorization"
+    ]
+  }
+]

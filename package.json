@@ -1,0 +1,27 @@
+{
+  "name": "ulises-construcciones",
+  "version": "1.0.0",
+  "description": "Aplicación web estática, responsiva y lista para usarse en campo para capturar la información de presupuestos, cronogramas y notas de proyectos de construcción.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucastinte/ulises-construcciones.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/lucastinte/ulises-construcciones/issues"
+  },
+  "homepage": "https://github.com/lucastinte/ulises-construcciones#readme",
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "express": "^4.19.2",
+    "multer": "^2.0.2"
+  }
+}
