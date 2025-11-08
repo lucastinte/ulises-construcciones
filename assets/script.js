@@ -24,6 +24,14 @@ const budgetConfig = {
     label: 'Materiales',
     totalValue: 0,
   },
+  supplies: {
+    body: document.getElementById('suppliesBody'),
+    totalEl: document.getElementById('suppliesTotal'),
+    summaryEl: document.getElementById('summarySupplies'),
+    templateId: 'supplies-row-template',
+    label: 'Insumos',
+    totalValue: 0,
+  },
   labor: {
     body: document.getElementById('laborBody'),
     totalEl: document.getElementById('laborTotal'),
@@ -33,6 +41,16 @@ const budgetConfig = {
     totalValue: 0,
   },
 };
+
+const requiredProjectFieldKeys = [
+  'projectName',
+  'clientName',
+  'creationDate',
+  'projectMeasure',
+  'projectLocation',
+];
+
+const requiredBudgetSections = ['materials', 'supplies', 'labor'];
 
 const projectFields = {
   projectName: document.getElementById('projectName'),
@@ -54,7 +72,6 @@ const projectFields = {
 };
 
 const additionalInputs = {
-  supplies: document.getElementById('suppliesInput'),
   freight: document.getElementById('freightInput'),
   marginRate: document.getElementById('marginRate'),
 };
@@ -177,9 +194,12 @@ function renderMediaList(type) {
   listEl.innerHTML = list
     .map((url, index) => {
       const safeUrl = escapeHtml(url);
-      const displayName = escapeHtml(
-        getFileDisplayName(url, type === 'images' ? `Imagen ${index + 1}` : `Documento ${index + 1}`)
+      const rawName = getFileDisplayName(
+        url,
+        type === 'images' ? `Imagen ${index + 1}` : `Documento ${index + 1}`
       );
+      const displayName = escapeHtml(rawName);
+      const downloadName = escapeHtml(rawName);
       if (type === 'images') {
         return `
           <div class="catalog-media-list__item" data-type="images" data-index="${index}">
@@ -188,7 +208,10 @@ function renderMediaList(type) {
             </div>
             <div class="catalog-media-list__info">
               <span class="catalog-media-list__url" title="${safeUrl}">${displayName}</span>
-              <button type="button" class="catalog-media-list__remove" data-media-remove="images" data-index="${index}" aria-label="Quitar imagen ${index + 1}">Quitar</button>
+              <div class="catalog-media-list__actions">
+                <a href="${safeUrl}" class="catalog-media-list__action" target="_blank" rel="noopener" download="${downloadName}">Descargar</a>
+                <button type="button" class="catalog-media-list__remove" data-media-remove="images" data-index="${index}" aria-label="Quitar imagen ${index + 1}">Quitar</button>
+              </div>
             </div>
           </div>
         `;
@@ -198,7 +221,10 @@ function renderMediaList(type) {
           <div class="catalog-media-list__preview catalog-media-list__preview--doc">PDF</div>
           <div class="catalog-media-list__info">
             <span class="catalog-media-list__url" title="${safeUrl}">${displayName}</span>
-            <button type="button" class="catalog-media-list__remove" data-media-remove="documents" data-index="${index}" aria-label="Quitar documento ${index + 1}">Quitar</button>
+            <div class="catalog-media-list__actions">
+              <a href="${safeUrl}" class="catalog-media-list__action" target="_blank" rel="noopener" download="${downloadName}">Descargar</a>
+              <button type="button" class="catalog-media-list__remove" data-media-remove="documents" data-index="${index}" aria-label="Quitar documento ${index + 1}">Quitar</button>
+            </div>
           </div>
         </div>
       `;
@@ -353,7 +379,10 @@ function buildSummaryMarkup(entry) {
     { label: 'Materiales', value: formatCurrency(summary.materials ?? 0) },
     { label: 'Mano de obra', value: formatCurrency(summary.labor ?? 0) },
     { label: 'Insumos', value: formatCurrency(summary.supplies ?? additionals.supplies ?? 0) },
-    { label: 'Flete', value: formatCurrency(summary.freight ?? additionals.freight ?? 0) },
+    {
+      label: 'Flete / logística (costo adicional)',
+      value: formatCurrency(summary.freight ?? additionals.freight ?? 0),
+    },
     { label: 'Margen', value: formatCurrency(summary.margin ?? 0) },
     marginRateLine,
     { label: 'Total estimado', value: formatCurrency(summary.total ?? 0), strong: true },
@@ -496,19 +525,33 @@ function loadFromStorage() {
 
     Object.entries(budgetConfig).forEach(([sectionKey, config]) => {
       config.body.innerHTML = '';
-      (payload.budget?.[sectionKey] || []).forEach((item) => {
-        addBudgetRow(sectionKey, item);
-      });
-      if (config.body.children.length === 0) {
+      const storedRows = payload.budget?.[sectionKey] || [];
+      if (storedRows.length > 0) {
+        storedRows.forEach((item) => addBudgetRow(sectionKey, item));
+      } else if (sectionKey === 'supplies' && payload.additionals) {
+        const legacySupplies = parseNumber(payload.additionals.supplies);
+        if (legacySupplies > 0) {
+          addBudgetRow(sectionKey, {
+            concept: 'Insumos adicionales',
+            quantity: 1,
+            unitCost: legacySupplies,
+          });
+        } else {
+          addBudgetRow(sectionKey);
+        }
+      } else {
         addBudgetRow(sectionKey);
       }
       updateSectionTotals(sectionKey);
     });
 
     if (payload.additionals) {
-      additionalInputs.supplies.value = payload.additionals.supplies ?? 0;
-      additionalInputs.freight.value = payload.additionals.freight ?? 0;
-      additionalInputs.marginRate.value = payload.additionals.marginRate ?? 10;
+      if (additionalInputs.freight) {
+        additionalInputs.freight.value = payload.additionals.freight ?? 0;
+      }
+      if (additionalInputs.marginRate) {
+        additionalInputs.marginRate.value = payload.additionals.marginRate ?? 10;
+      }
     }
 
     updateSummary();
@@ -527,9 +570,9 @@ function getProjectData() {
 
 function getAdditionals() {
   return {
-    supplies: parseNumber(additionalInputs.supplies.value),
-    freight: parseNumber(additionalInputs.freight.value),
-    marginRate: parseNumber(additionalInputs.marginRate.value),
+    supplies: budgetConfig.supplies.totalValue,
+    freight: parseNumber(additionalInputs.freight?.value),
+    marginRate: parseNumber(additionalInputs.marginRate?.value),
   };
 }
 
@@ -619,22 +662,80 @@ function collectBudgetData() {
   return payload;
 }
 
+function hasMeaningfulRows(rows = []) {
+  return rows.some((item) => {
+    const concept = String(item.concept || '').trim();
+    const quantity = Number(item.quantity || 0);
+    const unitCost = Number(item.unitCost || 0);
+    const total = Number(item.total || 0);
+    return concept && (quantity > 0 || unitCost > 0 || total > 0);
+  });
+}
+
+const projectFieldLabels = {
+  projectName: 'Nombre del proyecto',
+  clientName: 'Cliente',
+  creationDate: 'Fecha',
+  projectMeasure: 'Medidas / Alcance',
+  projectLocation: 'Ubicación del proyecto',
+};
+
+function validateCatalogReadiness(budgetData) {
+  const missingFields = requiredProjectFieldKeys
+    .map((key) => ({ key, field: projectFields[key] }))
+    .filter(({ field }) => !field || !field.value.trim());
+
+  const missingSections = requiredBudgetSections.filter((sectionKey) => {
+    const rows = budgetData[sectionKey] || [];
+    return rows.length === 0 || !hasMeaningfulRows(rows);
+  });
+
+  if (missingFields.length === 0 && missingSections.length === 0) {
+    return { ok: true };
+  }
+
+  const messages = [];
+  if (missingFields.length > 0) {
+    const labels = missingFields.map(({ key }) => projectFieldLabels[key] || key);
+    messages.push(`Completa los datos obligatorios: ${labels.join(', ')}.`);
+  }
+  if (missingSections.length > 0) {
+    const sectionLabels = missingSections.map((key) => budgetConfig[key]?.label || key);
+    messages.push(`Agregá al menos un registro con valores en: ${sectionLabels.join(', ')}.`);
+  }
+  messages.push('Si solo necesitás un borrador, descargá el PDF desde el botón correspondiente.');
+
+  let focus = missingFields[0]?.field || null;
+  if (!focus && missingSections.length > 0) {
+    const sectionConfig = budgetConfig[missingSections[0]];
+    if (sectionConfig?.body) {
+      focus = sectionConfig.body.querySelector('[data-field="concept"]');
+    }
+  }
+
+  return {
+    ok: false,
+    message: messages.join('\n'),
+    focus,
+  };
+}
+
 function updateSummary() {
-  const supplies = parseNumber(additionalInputs.supplies.value);
-  const freight = parseNumber(additionalInputs.freight.value);
-  const marginRate = Math.max(0, parseNumber(additionalInputs.marginRate.value)) / 100;
+  const freight = parseNumber(additionalInputs.freight?.value);
+  const marginRate = Math.max(0, parseNumber(additionalInputs.marginRate?.value)) / 100;
 
   summaryValues.materials = budgetConfig.materials.totalValue;
+  summaryValues.supplies = budgetConfig.supplies.totalValue;
   summaryValues.labor = budgetConfig.labor.totalValue;
-  summaryValues.supplies = supplies;
   summaryValues.freight = freight;
 
   summaryValues.subtotal =
-    summaryValues.materials + summaryValues.labor + summaryValues.supplies + summaryValues.freight;
+    summaryValues.materials + summaryValues.supplies + summaryValues.labor + summaryValues.freight;
   summaryValues.margin = summaryValues.subtotal * marginRate;
   summaryValues.total = summaryValues.subtotal + summaryValues.margin;
 
   budgetConfig.materials.summaryEl.textContent = formatCurrency(summaryValues.materials);
+  budgetConfig.supplies.summaryEl.textContent = formatCurrency(summaryValues.supplies);
   budgetConfig.labor.summaryEl.textContent = formatCurrency(summaryValues.labor);
   summaryElements.supplies.textContent = formatCurrency(summaryValues.supplies);
   summaryElements.freight.textContent = formatCurrency(summaryValues.freight);
@@ -654,9 +755,12 @@ function clearAll() {
   });
   projectFields.companyCuit.value = '20-41679715-4';
 
-  additionalInputs.supplies.value = 0;
-  additionalInputs.freight.value = 0;
-  additionalInputs.marginRate.value = 10;
+  if (additionalInputs.freight) {
+    additionalInputs.freight.value = 0;
+  }
+  if (additionalInputs.marginRate) {
+    additionalInputs.marginRate.value = 10;
+  }
 
   Object.entries(budgetConfig).forEach(([sectionKey, config]) => {
     config.body.innerHTML = '';
@@ -703,7 +807,26 @@ function createBudgetCode(dateValue) {
 function renderBudgetDocument(payload) {
   const project = payload.project || {};
   const additionals = payload.additionals || {};
-  const summary = payload.summary || summaryValues;
+  const summary = { ...summaryValues, ...(payload.summary || {}) };
+  const suppliesValue = Number.isFinite(summary.supplies)
+    ? summary.supplies
+    : parseNumber(additionals.supplies);
+  summary.supplies = suppliesValue;
+  const freightValue = Number.isFinite(summary.freight)
+    ? summary.freight
+    : parseNumber(additionals.freight);
+  summary.freight = freightValue;
+  const subtotalValue = Number.isFinite(summary.subtotal)
+    ? summary.subtotal
+    : summary.materials + summary.labor + suppliesValue + freightValue;
+  summary.subtotal = subtotalValue;
+  const marginRateRaw = Number.isFinite(additionals.marginRate)
+    ? additionals.marginRate
+    : parseNumber(additionals.marginRate);
+  const marginRate = Number.isFinite(marginRateRaw) ? marginRateRaw : 0;
+  const marginValue = Number.isFinite(summary.margin) ? summary.margin : subtotalValue * marginRate;
+  summary.margin = marginValue;
+  summary.total = Number.isFinite(summary.total) ? summary.total : subtotalValue + marginValue;
   const items = buildReportItems(payload.budget || {});
 
   const projectName = project.projectName || 'Proyecto sin título';
@@ -719,9 +842,6 @@ function renderBudgetDocument(payload) {
   const companySocial = project.companySocial || '';
   const companyLocation = project.companyLocation || location || '—';
   const generatedDate = formatDate(payload.generatedAt);
-  const marginRate = Number.isFinite(additionals.marginRate)
-    ? additionals.marginRate
-    : parseNumber(additionals.marginRate);
   const marginRateLabel = Number.isFinite(marginRate) ? marginRate : 0;
   const otherDetailsMarkup = createListMarkup(project.otherDetails, 'Sin detalles adicionales.');
   const paymentMethodsMarkup = createListMarkup(project.paymentMethods, 'Sin especificar métodos de pago.');
@@ -738,25 +858,64 @@ function renderBudgetDocument(payload) {
   const safeEmail = escapeHtml(email);
   const safeCompanyLocation = escapeHtml(companyLocation);
   const safeCompanySocial = escapeHtml(companySocial);
+  const safeCompanyCuit = escapeHtml(`CUIT: ${companyCuit}`);
   const safeCompanyPhone = escapeHtml(companyPhone);
   const safeGeneratedDate = escapeHtml(generatedDate);
 
-  const itemsMarkup =
+  const renderItemRow = (item) => {
+    const sectionLabel = item.section || '';
+    const rowClasses = ['items-row'];
+    if (sectionLabel === 'Materiales') {
+      rowClasses.push('items-row--materials');
+    } else if (sectionLabel === 'Insumos') {
+      rowClasses.push('items-row--supplies');
+    } else if (sectionLabel === 'Mano de obra') {
+      rowClasses.push('items-row--labor');
+    }
+    const safeSection = escapeHtml(sectionLabel);
+    const safeConcept = escapeHtml(item.concept);
+    const quantity = quantityFormatter.format(parseNumber(item.quantity) || 0);
+    return `<tr class="${rowClasses.join(' ')}" data-section="${safeSection}">
+      <td>
+        <span class="item__category">${safeSection}</span>
+        <span class="item__concept">${safeConcept}</span>
+      </td>
+      <td>${formatCurrency(item.unitCost)}</td>
+      <td>${quantity}</td>
+      <td>${formatCurrency(item.total)}</td>
+    </tr>`;
+  };
+
+  const itemsBodyMarkup =
     items.length > 0
-      ? items
-          .map(
-            (item) => `<tr>
-              <td>
-                <span class="item__category">${escapeHtml(item.section)}</span>
-                <span class="item__concept">${escapeHtml(item.concept)}</span>
-              </td>
-              <td>${formatCurrency(item.unitCost)}</td>
-              <td>${quantityFormatter.format(parseNumber(item.quantity) || 0)}</td>
-              <td>${formatCurrency(item.total)}</td>
-            </tr>`
-          )
-          .join('')
+      ? items.map((item) => renderItemRow(item)).join('')
       : '<tr class="items-empty"><td colspan="4">Sin partidas cargadas.</td></tr>';
+
+  const summaryEntries = [
+    { label: 'Materiales', value: summary.materials },
+    { label: 'Mano de obra', value: summary.labor },
+    { label: 'Insumos', value: summary.supplies },
+    { label: 'Flete / logística (costo adicional)', value: summary.freight },
+    { label: 'Total', value: summary.subtotal, rowClass: 'summary-divider' },
+    { label: `Margen (${quantityFormatter.format(marginRateLabel)}%)`, value: summary.margin },
+    { label: 'Total + margen', value: summary.total, rowClass: 'summary-highlight' },
+  ];
+
+  const summaryFooterMarkup = summaryEntries
+    .map((entry) => {
+      const rowClasses = ['summary-row'];
+      if (entry.rowClass) {
+        rowClasses.push(entry.rowClass);
+      }
+      const safeLabel = escapeHtml(entry.label);
+      return `<tr class="${rowClasses.join(' ')}">
+        <td class="summary-label">${safeLabel}</td>
+        <td class="summary-spacer"></td>
+        <td class="summary-spacer"></td>
+        <td class="summary-value">${formatCurrency(entry.value)}</td>
+      </tr>`;
+    })
+    .join('');
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -766,66 +925,84 @@ function renderBudgetDocument(payload) {
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;500;600;700&family=Montserrat:wght@500;600;700&display=swap');
       :root { color-scheme: light; font-family: 'Lato', 'Montserrat', sans-serif; }
-      @page { size: A4; margin: 12mm 12mm 14mm; }
+      @page { size: A4; margin: 10mm 10mm 12mm; }
       body {
         margin: 0;
         background: radial-gradient(circle at top left, rgba(15, 63, 70, 0.12), transparent 48%),
           radial-gradient(circle at bottom right, rgba(193, 164, 123, 0.18), transparent 44%),
           #f4f5f6;
         color: #172327;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
       }
       .document {
-        width: calc(210mm - 24mm);
-        max-width: calc(100vw - 40px);
-        margin: 16mm auto;
+        width: 880px;
+        max-width: calc(100vw - 32px);
+        margin: 16mm auto 12mm;
         background: #fff;
-        border-radius: 10px;
-        box-shadow: 0 34px 68px rgba(9, 38, 43, 0.2);
+        border-radius: 16px;
+        box-shadow: 0 30px 58px rgba(9, 38, 43, 0.16);
         overflow: hidden;
       }
       .hero {
-        display: flex;
-        flex-wrap: wrap;
-        padding: 28px 34px 22px;
+        display: grid;
+        grid-template-columns: minmax(260px, 1fr) minmax(320px, 1.4fr);
+        gap: 20px;
+        padding: 26px 28px 20px;
       }
       .hero__brand {
-        background: #0f3f46;
+        background: linear-gradient(155deg, #0f3f46 0%, #123f45 55%, #0a2c31 100%);
         color: #f4efe4;
         padding: 26px 24px;
-        width: 260px;
-        display: flex;
-        flex-direction: column;
-        gap: 0.9rem;
+        border-radius: 14px;
+        display: grid;
+        gap: 0.8rem;
+        align-content: start;
+        min-height: 170px;
       }
       .hero__brand h1 {
         margin: 0;
         font-family: 'Montserrat', sans-serif;
-        font-size: 1.22rem;
-        letter-spacing: 0.12em;
+        font-size: 1.3rem;
+        letter-spacing: 0.17em;
         text-transform: uppercase;
+        line-height: 1.35;
       }
       .hero__brand p {
         margin: 0;
-        letter-spacing: 0.14em;
+        letter-spacing: 0.13em;
         text-transform: uppercase;
-        font-size: 0.78rem;
+        font-size: 0.8rem;
+        opacity: 0.88;
       }
       .hero__brand span {
         font-size: 0.78rem;
-        letter-spacing: 0.04em;
+        letter-spacing: 0.06em;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+      .hero__brand span::before {
+        content: '📄';
       }
       .hero__meta {
-        flex: 1;
-        padding: 24px 30px;
-        background: linear-gradient(180deg, rgba(15, 63, 70, 0.06) 0%, rgba(255, 255, 255, 0.95) 55%);
+        background: linear-gradient(180deg, rgba(15, 63, 70, 0.08) 0%, rgba(255, 255, 255, 0.94) 68%);
+        border-radius: 16px;
+        padding: 24px 24px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+      .hero__meta-header {
         display: grid;
-        gap: 0.9rem;
+        gap: 0.25rem;
       }
       .hero__title {
         font-family: 'Montserrat', sans-serif;
         text-transform: uppercase;
-        letter-spacing: 0.14em;
-        font-size: 1.6rem;
+        letter-spacing: 0.2em;
+        font-size: 1.32rem;
         color: #0f3f46;
         margin: 0;
       }
@@ -834,74 +1011,95 @@ function renderBudgetDocument(payload) {
         letter-spacing: 0.12em;
         text-transform: uppercase;
         color: #c99d3b;
-        font-size: 0.85rem;
+        font-size: 0.78rem;
       }
       .meta-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-        gap: 0.55rem 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 0.45rem 0.9rem;
         margin: 0;
         padding: 0;
         list-style: none;
       }
       .meta-grid li {
         display: grid;
-        gap: 0.22rem;
+        gap: 0.14rem;
       }
       .meta-label {
         font-family: 'Montserrat', sans-serif;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.1em;
         text-transform: uppercase;
-        font-size: 0.68rem;
-        color: #708083;
+        font-size: 0.64rem;
+        color: #6f7b7d;
       }
       .meta-value {
-        font-size: 0.94rem;
+        font-size: 0.86rem;
+        font-weight: 600;
       }
       .section {
-        padding: 26px 34px;
-        border-top: 1px solid rgba(15, 63, 70, 0.08);
+        padding: 18px 26px 20px;
+        border-top: 1px solid rgba(15, 63, 70, 0.1);
+        page-break-inside: auto;
+        break-inside: auto;
+      }
+      .section:first-of-type {
+        padding-top: 8px;
+        margin-top: -6px;
       }
       .section h2 {
-        margin: 0 0 1.2rem;
+        margin: 0 0 0.95rem;
         font-family: 'Montserrat', sans-serif;
         letter-spacing: 0.11em;
         text-transform: uppercase;
         color: #0f3f46;
-        font-size: 0.95rem;
+        font-size: 0.9rem;
       }
       table {
         width: 100%;
         border-collapse: collapse;
+        margin-top: 0.85rem;
+        page-break-inside: auto;
+        font-size: 0.9rem;
       }
-      thead th {
+      thead {
         background: #0f3f46;
         color: #f4efe4;
-        padding: 0.7rem 0.85rem;
+      }
+      thead th {
+        padding: 0.6rem 0.8rem;
         font-family: 'Montserrat', sans-serif;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.1em;
         text-transform: uppercase;
-        font-size: 0.72rem;
+        font-size: 0.68rem;
         text-align: left;
       }
+      tbody tr {
+        page-break-inside: avoid;
+      }
       tbody td {
-        padding: 0.68rem 0.85rem;
+        padding: 0.58rem 0.8rem;
         border-bottom: 1px solid rgba(15, 63, 70, 0.08);
+        background: rgba(255, 255, 255, 0.97);
+        vertical-align: top;
       }
-      tbody tr:nth-child(even) td {
-        background: rgba(242, 239, 233, 0.6);
-      }
-      td:nth-child(2),
-      td:nth-child(3),
-      td:nth-child(4) {
+      .items-row td:nth-child(n + 2) {
         text-align: right;
+      }
+      .items-row--materials td {
+        background: rgba(15, 63, 70, 0.05);
+      }
+      .items-row--supplies td {
+        background: rgba(201, 157, 59, 0.12);
+      }
+      .items-row--labor td {
+        background: rgba(17, 70, 82, 0.07);
       }
       .item__category {
         display: block;
-        font-size: 0.68rem;
+        font-size: 0.6rem;
         letter-spacing: 0.12em;
         text-transform: uppercase;
-        color: #6d7d80;
+        color: #4f5a5d;
         margin-bottom: 0.18rem;
       }
       .item__concept {
@@ -912,42 +1110,51 @@ function renderBudgetDocument(payload) {
         font-style: italic;
         background: rgba(255, 255, 255, 0.9);
       }
-      .summary-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 1.4rem;
+      .summary-row {
+        page-break-inside: avoid;
       }
-      .summary-table tr td:first-child {
+      .summary-row td {
+        padding: 0.6rem 0.2rem;
+        border-top: 1px solid rgba(15, 63, 70, 0.08);
+        background: rgba(255, 255, 255, 0.95);
+      }
+      .summary-label {
+        display: block;
         text-transform: uppercase;
         letter-spacing: 0.08em;
         font-family: 'Montserrat', sans-serif;
-        font-size: 0.75rem;
+        font-size: 0.68rem;
         color: #5a6567;
       }
-      .summary-table td {
-        padding: 0.6rem 0.2rem;
-        border-bottom: 1px solid rgba(15, 63, 70, 0.08);
+      .summary-spacer {
+        border-top: 1px solid rgba(15, 63, 70, 0.08);
       }
-      .summary-table td:last-child {
+      .summary-value {
         text-align: right;
         font-family: 'Montserrat', sans-serif;
+        font-weight: 600;
+      }
+      .summary-divider td {
+        padding-top: 0.8rem;
+        border-top: 2px solid rgba(15, 63, 70, 0.16);
       }
       .summary-highlight td {
-        background: rgba(171, 201, 59, 0.2);
+        background: rgba(171, 201, 59, 0.22);
         font-weight: 700;
+        color: #0f3f46;
       }
       .details-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 1.1rem 1.6rem;
-        margin-top: 2rem;
+        gap: 0.75rem 1.1rem;
+        margin-top: 1.2rem;
       }
       .details-column h3 {
         margin: 0 0 0.6rem;
         font-family: 'Montserrat', sans-serif;
         letter-spacing: 0.12em;
         text-transform: uppercase;
-        font-size: 0.8rem;
+        font-size: 0.72rem;
         color: #c99d3b;
       }
       .details-column ul {
@@ -962,16 +1169,16 @@ function renderBudgetDocument(payload) {
         font-size: 0.9rem;
       }
       .signature-block {
-        margin-top: 2rem;
+        margin-top: 1.4rem;
         display: flex;
         flex-direction: column;
         gap: 0.3rem;
-        max-width: 300px;
+        max-width: 260px;
       }
       .signature-line {
         height: 1px;
         background: rgba(15, 63, 70, 0.4);
-        margin: 0.8rem 0 0.35rem;
+        margin: 0.65rem 0 0.32rem;
       }
       .signature-name {
         font-family: 'Montserrat', sans-serif;
@@ -984,30 +1191,41 @@ function renderBudgetDocument(payload) {
         text-transform: uppercase;
       }
       .footer {
-        padding: 0 34px 34px;
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-end;
-        font-size: 0.82rem;
+        padding: 0 26px 24px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 0.8rem;
+        font-size: 0.8rem;
         color: #5a6567;
+        border-top: 1px solid rgba(15, 63, 70, 0.1);
+        background: linear-gradient(180deg, rgba(244, 239, 233, 0.4) 0%, rgba(255, 255, 255, 0.95) 100%);
       }
       .footer strong {
         display: block;
         color: #0f3f46;
         margin-bottom: 0.2rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-size: 0.78rem;
+      }
+      .footer span {
+        display: block;
+        margin-bottom: 0.2rem;
       }
       @media print {
         body { background: #fff; }
         .document { box-shadow: none; margin: 0 auto; width: auto; max-width: none; border-radius: 0; }
-        .hero { padding: 18px 20px 14px; }
-        .hero__brand { padding: 18px 18px; width: 220px; gap: 0.7rem; }
-        .hero__meta { padding: 18px 22px; gap: 0.7rem; }
-        .section { padding: 18px 22px; page-break-inside: avoid; }
-        table { font-size: 0.92em; }
+        .hero { padding: 18px 20px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+        .hero__brand { padding: 22px 22px; min-height: 150px; }
+        .hero__brand span::before { display: none; }
+        .hero__meta { padding: 22px 22px; }
+        .section { padding: 18px 22px; page-break-inside: auto; break-inside: auto; }
+        table { font-size: 0.86em; }
+        thead { display: table-header-group; }
+        tbody tr { page-break-inside: avoid; }
         thead th { padding: 0.55rem 0.7rem; }
         tbody td { padding: 0.55rem 0.7rem; }
-        .summary-table { margin-top: 1.1rem; }
-        .summary-table td { padding: 0.4rem 0; }
+        tfoot .summary-row td { padding: 0.4rem 0; }
         .details-grid { gap: 0.9rem 1.4rem; margin-top: 1.3rem; }
         .signature-block { margin-top: 1.4rem; }
         .footer { padding: 0 22px 22px; }
@@ -1020,10 +1238,10 @@ function renderBudgetDocument(payload) {
         <div class="hero__brand">
           <h1>Ulises Construcciones</h1>
           <p>Soluciones residenciales</p>
-          <span>CUIT: ${escapeHtml(companyCuit)}</span>
+          <span>${safeCompanyCuit}</span>
         </div>
         <div class="hero__meta">
-          <div>
+          <div class="hero__meta-header">
             <p class="hero__title">Presupuesto</p>
             <p class="hero__code">N° ${budgetCode}</p>
           </div>
@@ -1054,7 +1272,7 @@ function renderBudgetDocument(payload) {
 
       <section class="section">
         <h2>Detalle</h2>
-        <table>
+        <table class="report-table">
           <thead>
             <tr>
               <th>Descripción</th>
@@ -1063,39 +1281,8 @@ function renderBudgetDocument(payload) {
               <th>Subtotal</th>
             </tr>
           </thead>
-          <tbody>${itemsMarkup}</tbody>
-        </table>
-        <table class="summary-table">
-          <tbody>
-            <tr>
-              <td>Materiales</td>
-              <td>${formatCurrency(summary.materials)}</td>
-            </tr>
-            <tr>
-              <td>Mano de obra</td>
-              <td>${formatCurrency(summary.labor)}</td>
-            </tr>
-            <tr>
-              <td>Insumos</td>
-              <td>${formatCurrency(summary.supplies)}</td>
-            </tr>
-            <tr>
-              <td>Flete</td>
-              <td>${formatCurrency(summary.freight)}</td>
-            </tr>
-            <tr>
-              <td>Total</td>
-              <td>${formatCurrency(summary.subtotal)}</td>
-            </tr>
-            <tr>
-              <td>Margen (${quantityFormatter.format(marginRateLabel)}%)</td>
-              <td>${formatCurrency(summary.margin)}</td>
-            </tr>
-            <tr class="summary-highlight">
-              <td>Total + margen</td>
-              <td>${formatCurrency(summary.total)}</td>
-            </tr>
-          </tbody>
+          <tbody>${itemsBodyMarkup}</tbody>
+          <tfoot>${summaryFooterMarkup}</tfoot>
         </table>
         <div class="details-grid">
           <div class="details-column">
@@ -1121,15 +1308,22 @@ function renderBudgetDocument(payload) {
       <footer class="footer">
         <div>
           <strong>Contacto</strong>
-          <span>Tel: ${safeCompanyPhone}</span>
-          ${companySocial ? `<span>Redes: ${safeCompanySocial}</span>` : ''}
-          <span>Email: ${safeEmail}</span>
+          <span>📞 ${safeCompanyPhone}</span>
+          <span>✉️ ${safeEmail}</span>
         </div>
         <div>
-          <strong>Emitido</strong>
-          <span>${safeGeneratedDate}</span>
-          <span>Ubicación: ${safeCompanyLocation}</span>
+          <strong>Ubicación</strong>
+          <span>📍 ${safeCompanyLocation}</span>
+          <span>📅 Emitido: ${safeGeneratedDate}</span>
         </div>
+        ${
+          companySocial
+            ? `<div>
+                <strong>Redes</strong>
+                <span>📸 Instagram: ${safeCompanySocial}</span>
+              </div>`
+            : ''
+        }
       </footer>
     </div>
     <script>
@@ -1298,7 +1492,20 @@ async function handleCatalogSubmit(event) {
     return;
   }
 
+  updateSummary();
   const budgetData = collectBudgetData();
+  const validation = validateCatalogReadiness(budgetData);
+  if (!validation.ok) {
+    window.alert(validation.message);
+    if (validation.focus && typeof validation.focus.focus === 'function') {
+      validation.focus.focus({ preventScroll: true });
+      if (typeof validation.focus.scrollIntoView === 'function') {
+        validation.focus.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+    return;
+  }
+
   const payload = {
     name: nameValue,
     category: catalogFields.category.value.trim(),
@@ -1308,6 +1515,7 @@ async function handleCatalogSubmit(event) {
     project: getProjectData(),
     budget: {
       materials: budgetData.materials || [],
+      supplies: budgetData.supplies || [],
       labor: budgetData.labor || [],
     },
     additionals: getAdditionals(),
@@ -1355,17 +1563,31 @@ function applyCatalogEntry(entry) {
     field.value = entry.project?.[key] ?? '';
   });
 
-  additionalInputs.supplies.value = entry.additionals?.supplies ?? 0;
-  additionalInputs.freight.value = entry.additionals?.freight ?? 0;
-  additionalInputs.marginRate.value = entry.additionals?.marginRate ?? 10;
+  if (additionalInputs.freight) {
+    additionalInputs.freight.value = entry.additionals?.freight ?? 0;
+  }
+  if (additionalInputs.marginRate) {
+    additionalInputs.marginRate.value = entry.additionals?.marginRate ?? 10;
+  }
 
   Object.entries(budgetConfig).forEach(([sectionKey, config]) => {
     config.body.innerHTML = '';
     const rows = entry.budget?.[sectionKey] || [];
-    if (rows.length === 0) {
-      addBudgetRow(sectionKey);
-    } else {
+    if (rows.length > 0) {
       rows.forEach((item) => addBudgetRow(sectionKey, item));
+    } else if (sectionKey === 'supplies') {
+      const legacySupplies = parseNumber(entry.additionals?.supplies);
+      if (legacySupplies > 0) {
+        addBudgetRow(sectionKey, {
+          concept: 'Insumos adicionales',
+          quantity: 1,
+          unitCost: legacySupplies,
+        });
+      } else {
+        addBudgetRow(sectionKey);
+      }
+    } else {
+      addBudgetRow(sectionKey);
     }
     updateSectionTotals(sectionKey);
   });
@@ -1589,31 +1811,57 @@ function initialize() {
   const navToggle = document.querySelector('.nav-toggle');
   const nav = document.querySelector('.app-nav');
   if (navToggle && nav) {
+    const navClose = nav.querySelector('.app-nav__close');
+    const firstNavLink = nav.querySelector('.app-nav__list a');
+    const desktopQuery = window.matchMedia('(min-width: 961px)');
+
+    const openNavigation = () => {
+      navToggle.setAttribute('aria-expanded', 'true');
+      nav.classList.add('app-nav--open');
+      document.body.classList.add('nav-open');
+      const focusTarget = firstNavLink || navClose;
+      if (focusTarget) {
+        window.requestAnimationFrame(() => {
+          focusTarget.focus();
+        });
+      }
+    };
+
+    const closeNavigation = ({ returnFocus = true } = {}) => {
+      navToggle.setAttribute('aria-expanded', 'false');
+      nav.classList.remove('app-nav--open');
+      document.body.classList.remove('nav-open');
+      if (returnFocus) {
+        navToggle.focus();
+      }
+    };
+
     const toggleNavigation = () => {
-      const isOpen = navToggle.getAttribute('aria-expanded') === 'true';
-      navToggle.setAttribute('aria-expanded', String(!isOpen));
-      nav.classList.toggle('app-nav--open', !isOpen);
-      document.body.classList.toggle('nav-open', !isOpen);
+      const isOpen = nav.classList.contains('app-nav--open');
+      if (isOpen) {
+        closeNavigation();
+      } else {
+        openNavigation();
+      }
     };
 
     navToggle.addEventListener('click', toggleNavigation);
 
+    if (navClose) {
+      navClose.addEventListener('click', () => closeNavigation());
+    }
+
     nav.querySelectorAll('a').forEach((link) => {
       link.addEventListener('click', () => {
-        if (window.matchMedia('(max-width: 720px)').matches) {
-          navToggle.setAttribute('aria-expanded', 'false');
-          nav.classList.remove('app-nav--open');
-          document.body.classList.remove('nav-open');
+        if (!desktopQuery.matches) {
+          closeNavigation({ returnFocus: false });
         }
       });
     });
 
-    const desktopQuery = window.matchMedia('(min-width: 961px)');
     const handleDesktopChange = (event) => {
       if (event.matches) {
-        navToggle.setAttribute('aria-expanded', 'false');
-        nav.classList.remove('app-nav--open');
-        document.body.classList.remove('nav-open');
+        closeNavigation({ returnFocus: false });
       }
     };
 

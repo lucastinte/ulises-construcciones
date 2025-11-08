@@ -188,6 +188,25 @@ const toCatalogEntry = (row, req) => {
   }
   const resolvedImages = images.map((item) => resolveUrl(item, req));
   const resolvedDocuments = documents.map((item) => resolveUrl(item, req));
+  const budgetRaw = parseJsonField(row.budget_json) || {};
+  const budget = {
+    materials: Array.isArray(budgetRaw.materials) ? budgetRaw.materials : [],
+    supplies: Array.isArray(budgetRaw.supplies) ? budgetRaw.supplies : [],
+    labor: Array.isArray(budgetRaw.labor) ? budgetRaw.labor : [],
+  };
+  const additionals = parseJsonField(row.additionals_json) || {};
+  const suppliesFromBudget = budget.supplies.reduce((acc, item) => {
+    const value = Number.parseFloat(item?.total ?? 0);
+    return Number.isFinite(value) ? acc + value : acc;
+  }, 0);
+  const summarySuppliesNumber = Number.parseFloat(summary.supplies);
+  if (!Number.isFinite(summarySuppliesNumber) && suppliesFromBudget > 0) {
+    summary.supplies = suppliesFromBudget;
+  }
+  const additionalsSuppliesNumber = Number.parseFloat(additionals.supplies);
+  if (!Number.isFinite(additionalsSuppliesNumber) && suppliesFromBudget > 0) {
+    additionals.supplies = suppliesFromBudget;
+  }
 
   return {
     id: row.id,
@@ -195,8 +214,8 @@ const toCatalogEntry = (row, req) => {
     category: row.category,
     description: row.description,
     project: parseJsonField(row.project_json) || {},
-    budget: parseJsonField(row.budget_json) || { materials: [], labor: [] },
-    additionals: parseJsonField(row.additionals_json) || {},
+    budget,
+    additionals,
     summary,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

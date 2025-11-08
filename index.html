@@ -14,25 +14,58 @@
   </head>
   <body>
     <header class="app-header">
-      <div class="branding">
-        <div class="logo">UC</div>
-        <div class="brand-text">
-          <h1>Ulises Construcciones</h1>
-          <p>Gestor interno de presupuestos</p>
+      <div class="app-header__top">
+        <div class="branding">
+          <div class="logo">UC</div>
+          <div class="brand-text">
+            <h1>Ulises Construcciones</h1>
+            <p>Gestor interno de presupuestos</p>
+          </div>
+        </div>
+        <div class="app-header__controls">
+          <div class="header-cta header-cta--desktop">
+            <a class="header-cta__button" href="#resumen">Presupuestos</a>
+            <a class="header-cta__button header-cta__button--accent" href="#catalogo">Catálogos</a>
+          </div>
+          <button class="nav-toggle" type="button" aria-controls="appNavigation" aria-expanded="false">
+            <span class="nav-toggle__icon nav-toggle__icon--bars" aria-hidden="true">
+              <span class="nav-toggle__bar"></span>
+              <span class="nav-toggle__bar"></span>
+              <span class="nav-toggle__bar"></span>
+            </span>
+            <span class="nav-toggle__icon nav-toggle__icon--close" aria-hidden="true">×</span>
+            <span class="nav-toggle__label">Menú</span>
+          </button>
         </div>
       </div>
-      <button class="nav-toggle" type="button" aria-controls="appNavigation" aria-expanded="false">
-        <span class="nav-toggle__bar"></span>
-        <span class="nav-toggle__bar"></span>
-        <span class="nav-toggle__bar"></span>
-        <span class="nav-toggle__label">Menú</span>
-      </button>
       <nav class="app-nav" id="appNavigation" aria-label="Secciones principales">
-        <a href="#informacion">Información</a>
-        <a href="#materiales">Materiales</a>
-        <a href="#mano-obra">Mano de obra</a>
-        <a href="#resumen">Resumen</a>
-        <a href="#catalogo">Catálogo</a>
+        <div class="app-nav__panel">
+          <div class="app-nav__panel-top">
+            <div class="app-nav__panel-brand">
+              <div class="app-nav__panel-logo">UC</div>
+              <div class="app-nav__panel-text">
+                <span>Ulises Construcciones</span>
+                <small>Gestor interno</small>
+              </div>
+            </div>
+          </div>
+          <ul class="app-nav__list">
+            <li><a href="#informacion">Información</a></li>
+            <li><a href="#materiales">Materiales</a></li>
+            <li><a href="#insumos">Insumos</a></li>
+            <li><a href="#mano-obra">Mano de obra</a></li>
+            <li><a href="#resumen">Resumen</a></li>
+            <li><a href="#catalogo">Catálogo</a></li>
+          </ul>
+          <div class="header-cta header-cta--mobile">
+            <a class="header-cta__button" href="#resumen">Presupuestos</a>
+            <a class="header-cta__button header-cta__button--accent" href="#catalogo">Catálogos</a>
+          </div>
+          <button class="app-nav__close" type="button" aria-label="Cerrar menú">
+            <span aria-hidden="true">×</span>
+            <span class="app-nav__close-label">Cerrar</span>
+          </button>
+        </div>
       </nav>
     </header>
 
@@ -109,6 +142,41 @@
         </div>
       </section>
 
+      <section id="insumos" class="card">
+        <header class="card__header">
+          <h2>Insumos</h2>
+          <p>Registra insumos o consumibles adicionales con sus cantidades y costos unitarios.</p>
+        </header>
+        <div class="card__body">
+          <div class="section-actions">
+            <button type="button" class="button button--ghost" data-action="add-row" data-section="supplies">
+              + Agregar insumo
+            </button>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Insumo</th>
+                  <th class="col-num">Cantidad</th>
+                  <th class="col-num">Precio unitario</th>
+                  <th class="col-num">Subtotal</th>
+                  <th aria-label="Eliminar"></th>
+                </tr>
+              </thead>
+              <tbody id="suppliesBody"></tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="3">Total insumos</td>
+                  <td id="suppliesTotal">$0,00</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section id="mano-obra" class="card">
         <header class="card__header">
           <h2>Mano de obra</h2>
@@ -147,17 +215,16 @@
       <section id="costos" class="card">
         <header class="card__header">
           <h2>Costos adicionales</h2>
-          <p>Incluye montos globales adicionales al cálculo (insumos, fletes u otros).</p>
+          <p>Incluye montos globales adicionales al cálculo (fletes u otros ajustes).</p>
         </header>
         <div class="card__body extra-grid">
           <label>
-            <span>Insumos adicionales</span>
-            <input type="number" id="suppliesInput" min="0" step="0.01" value="0" />
-          </label>
-          <label>
-            <span>Flete / logística</span>
+            <span>Flete / logística (costo adicional)</span>
             <input type="number" id="freightInput" min="0" step="0.01" value="0" />
           </label>
+          <p class="form-helper">
+            Los insumos unitarios se calculan desde la tabla anterior. Agregá aquí solo cargos globales adicionales.
+          </p>
         </div>
       </section>
 
@@ -246,7 +313,7 @@
                   <td id="summarySupplies">$0,00</td>
                 </tr>
                 <tr>
-                  <td>Flete</td>
+                  <td>Flete / logística (costo adicional)</td>
                   <td id="summaryFreight">$0,00</td>
                 </tr>
                 <tr class="summary-table__subtotal">
@@ -352,7 +419,7 @@
               <button type="button" class="button button--secondary" id="catalogCancel">Cancelar</button>
             </div>
             <p class="catalog-form__note">
-              Se guardarán los materiales, mano de obra y ajustes actuales. Podrás reutilizarlos y editarlos cuando quieras.
+              Se guardarán los materiales, insumos, mano de obra y ajustes actuales. Podrás reutilizarlos y editarlos cuando quieras.
             </p>
           </form>
           <section class="catalog-library">
@@ -427,6 +494,26 @@
         </td>
         <td>
           <button type="button" class="icon-button" data-action="remove-row" aria-label="Eliminar concepto">✕</button>
+        </td>
+      </tr>
+    </template>
+
+    <template id="supplies-row-template">
+      <tr data-section="supplies">
+        <td data-label="Insumo">
+          <input type="text" data-field="concept" placeholder="Descripción del insumo" />
+        </td>
+        <td class="col-num" data-label="Cantidad">
+          <input type="number" data-field="quantity" min="0" step="0.01" value="0" />
+        </td>
+        <td class="col-num" data-label="Precio unitario">
+          <input type="number" data-field="unitCost" min="0" step="0.01" value="0" />
+        </td>
+        <td class="col-num" data-label="Subtotal">
+          <output data-field="total">$0,00</output>
+        </td>
+        <td>
+          <button type="button" class="icon-button" data-action="remove-row" aria-label="Eliminar insumo">✕</button>
         </td>
       </tr>
     </template>

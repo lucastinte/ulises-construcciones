@@ -106,7 +106,10 @@ function buildSummaryMarkup(entry) {
     { label: 'Materiales', value: formatCurrency(summary.materials ?? 0) },
     { label: 'Mano de obra', value: formatCurrency(summary.labor ?? 0) },
     { label: 'Insumos', value: formatCurrency(summary.supplies ?? additionals.supplies ?? 0) },
-    { label: 'Flete', value: formatCurrency(summary.freight ?? additionals.freight ?? 0) },
+    {
+      label: 'Flete / logística (costo adicional)',
+      value: formatCurrency(summary.freight ?? additionals.freight ?? 0),
+    },
     { label: 'Margen', value: formatCurrency(summary.margin ?? 0) },
     marginRateLine,
     { label: 'Total estimado', value: formatCurrency(summary.total ?? 0), strong: true },
@@ -166,6 +169,7 @@ function renderEntry(entry) {
   const project = entry.project || {};
   const summaryMarkup = buildSummaryMarkup(entry);
   const materials = Array.isArray(entry.budget?.materials) ? entry.budget.materials : [];
+  const supplies = Array.isArray(entry.budget?.supplies) ? entry.budget.supplies : [];
   const labor = Array.isArray(entry.budget?.labor) ? entry.budget.labor : [];
   const projectDetails = buildDefinitionList([
     { label: 'Proyecto', value: project.projectName },
@@ -192,13 +196,24 @@ function renderEntry(entry) {
     ? `
         <div class="catalog-detail__gallery">
           ${images
-            .map(
-              (url, index) => `
+            .map((url, index) => {
+              const safeUrl = escapeHtml(url);
+              const fileName = getFileDisplayName(url, `Imagen ${index + 1}`);
+              const safeFileName = escapeHtml(fileName);
+              return `
                 <figure>
-                  <img src="${escapeHtml(url)}" alt="Imagen ${index + 1} - ${escapeHtml(entry.name)}" loading="lazy" />
+                  <a href="${safeUrl}" target="_blank" rel="noopener" download="${safeFileName}" class="catalog-detail__gallery-link">
+                    <img src="${safeUrl}" alt="Imagen ${index + 1} - ${escapeHtml(entry.name)}" loading="lazy" />
+                  </a>
+                  <figcaption>
+                    <span>${safeFileName}</span>
+                    <a href="${safeUrl}" target="_blank" rel="noopener" download="${safeFileName}" class="catalog-detail__link catalog-detail__link--small">
+                      Descargar
+                    </a>
+                  </figcaption>
                 </figure>
-              `
-            )
+              `;
+            })
             .join('')}
         </div>
       `
@@ -209,11 +224,12 @@ function renderEntry(entry) {
         <ul class="catalog-detail__documents">
           ${documents
             .map((url, index) => {
-              const name = escapeHtml(getFileDisplayName(url, `Documento ${index + 1}`));
+              const safeUrl = escapeHtml(url);
+              const fileName = escapeHtml(getFileDisplayName(url, `Documento ${index + 1}`));
               return `
                 <li>
-                  <a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="catalog-detail__link">
-                    ${name}
+                  <a href="${safeUrl}" target="_blank" rel="noopener" download="${fileName}" class="catalog-detail__link">
+                    ${fileName}
                   </a>
                 </li>
               `;
@@ -249,6 +265,10 @@ function renderEntry(entry) {
     <section>
       <h2>Materiales</h2>
       ${buildBudgetList(materials, 'Sin materiales registrados.')}
+    </section>
+    <section>
+      <h2>Insumos</h2>
+      ${buildBudgetList(supplies, 'Sin insumos registrados.')}
     </section>
     <section>
       <h2>Mano de obra</h2>
