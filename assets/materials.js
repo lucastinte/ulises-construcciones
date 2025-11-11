@@ -4,12 +4,45 @@ const currencyFormatter = new Intl.NumberFormat('es-AR', {
   maximumFractionDigits: 2,
 });
 
+const INVENTORY_TYPES = {
+  materials: {
+    label: 'Materiales',
+    searchPlaceholder: 'Ej. ANGULOS 1 1/2" X 1/4"',
+    importDescription: 'Carga un CSV con los materiales disponibles y sus precios actualizados.',
+  },
+  supplies: {
+    label: 'Insumos',
+    searchPlaceholder: 'Ej. Disco de corte 4"',
+    importDescription: 'Carga un CSV con los insumos o consumibles que utilizas en obra.',
+  },
+  labor: {
+    label: 'Mano de obra',
+    searchPlaceholder: 'Ej. Soldador especializado',
+    importDescription: 'Carga un CSV con perfiles de mano de obra y sus tarifas.',
+  },
+};
+
 const tableBody = document.getElementById('materialsTableBody');
 const emptyStateEl = document.getElementById('materialsEmptyState');
 const paginationInfoEl = document.getElementById('materialsPaginationInfo');
 const prevPageButton = document.getElementById('materialsPrevPage');
 const nextPageButton = document.getElementById('materialsNextPage');
+const paginationActions = document.querySelector('.materials-pagination__actions');
 const globalMessageEl = document.getElementById('materialsGlobalMessage');
+
+const inventoryTabs = document.querySelectorAll('[data-inventory-tab]');
+const importLabelEl = document.getElementById('inventoryImportLabel');
+const importDescriptionEl = document.getElementById('inventoryImportDescription');
+const datasetLabelEl = document.getElementById('inventoryDatasetLabel');
+const datasetDescriptionEl = document.getElementById('inventoryDatasetDescription');
+const inventorySearchInput = document.getElementById('inventorySearchInput');
+const inventorySearchClear = document.getElementById('inventorySearchClear');
+
+const manualForm = document.getElementById('inventoryManualForm');
+const manualFields = {
+  name: document.getElementById('manualName'),
+  price: document.getElementById('manualPrice'),
+};
 
 const materialImportForm = document.getElementById('materialImportForm');
 const materialImportFileInput = document.getElementById('materialImportFile');
@@ -19,15 +52,37 @@ const materialImportSubmitButton = document.getElementById('materialImportSubmit
 const materialImportSummaryBox = document.getElementById('materialImportSummaryBox');
 const materialImportSummaryList = document.getElementById('materialImportSummaryList');
 
-const materialsState = {
+const createInventoryState = () => ({
   page: 1,
   perPage: 20,
   totalPages: 1,
   totalItems: 0,
   loading: false,
+  isSearching: false,
+  searchTerm: '',
+});
+
+const inventoryStates = {
+  materials: createInventoryState(),
+  supplies: createInventoryState(),
+  labor: createInventoryState(),
 };
 
-const materialCache = new Map();
+const inventoryCaches = {
+  materials: new Map(),
+  supplies: new Map(),
+  labor: new Map(),
+};
+
+let currentInventory = 'materials';
+
+const debounce = (fn, delay = 300) => {
+  let timeout;
+  return (...args) => {
+    window.clearTimeout(timeout);
+    timeout = window.setTimeout(() => fn(...args), delay);
+  };
+};
 
 const escapeHtml = (value) =>
   String(value ?? '')
@@ -36,37 +91,6 @@ const escapeHtml = (value) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-
-const formatCurrency = (value) => {
-  if (Number.isFinite(value)) {
-    return currencyFormatter.format(value);
-  }
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? currencyFormatter.format(parsed) : '—';
-};
-
-const formatPriceInputValue = (material) => {
-  if (Number.isFinite(material?.price)) return material.price;
-  if (Number.isFinite(material?.priceCents)) return material.priceCents / 100;
-  if (material?.priceRaw) return material.priceRaw;
-  return '';
-};
-
-const readJsonPayload = async (response) => {
-  const raw = await response.text();
-  try {
-    return JSON.parse(raw || '{}');
-  } catch (_error) {
-    const snippet = raw ? raw.slice(0, 200).replace(/\s+/g, ' ').trim() : '';
-    const error = new Error(
-      snippet
-        ? `El servidor devolvió HTML en lugar de JSON. Detalle: ${snippet}`
-        : 'El servidor devolvió un formato de respuesta inesperado.'
-    );
-    error.code = 'INVALID_JSON';
-    throw error;
-  }
-};
 
 const setGlobalMessage = (message, type = 'info') => {
   if (!globalMessageEl) return;
@@ -99,163 +123,36 @@ const disableRowButtons = (row, disabled) => {
   });
 };
 
-const buildRowMarkup = (material) => {
-  const priceValue = formatPriceInputValue(material);
-  return `
-    <tr data-id="${material.id}">
-      <td><input type="text" data-field="name" value="${escapeHtml(material.name ?? '')}" /></td>
-      <td><input type="text" data-field="category" value="${escapeHtml(material.category ?? '')}" /></td>
-      <td><input type="text" data-field="unit" value="${escapeHtml(material.unit ?? '')}" /></td>
-      <td>
-        <div class="materials-inline-input">
-          <input
-            type="text"
-            inputmode="decimal"
-            data-field="price"
-            value="${escapeHtml(priceValue ?? '')}"
-            placeholder="${escapeHtml(material.priceRaw ?? '')}"
-          />
-        </div>
-        <small>${escapeHtml(material.currency || 'ARS')}</small>
-      </td>
-      <td>
-        <div class="materials-row-actions">
-          <button type="button" class="button button--primary" data-action="save">Guardar</button>
-          <button type="button" class="button button--ghost" data-action="reset">Revertir</button>
-        </div>
-        <small class="materials-alert" data-field="rowStatus"></small>
-      </td>
-    </tr>
-  `;
-};
-
-const fillRowWithMaterial = (row, material) => {
-  if (!row || !material) return;
-  row.querySelector('[data-field="name"]').value = material.name || '';
-  row.querySelector('[data-field="category"]').value = material.category || '';
-  row.querySelector('[data-field="unit"]').value = material.unit || '';
-  row.querySelector('[data-field="price"]').value = formatPriceInputValue(material) || '';
-  setRowMessage(row, '');
-};
-
-const renderMaterialsTable = (items) => {
-  if (!tableBody) return;
-  if (!items || items.length === 0) {
-    tableBody.innerHTML = `
-      <tr>
-        <td colspan="5">No hay materiales para mostrar.</td>
-      </tr>
-    `;
-    return;
-  }
-
-  tableBody.innerHTML = items.map((item) => buildRowMarkup(item)).join('');
-  tableBody.querySelectorAll('tr').forEach((row) => {
-    const id = Number.parseInt(row.dataset.id, 10);
-    const material = materialCache.get(id);
-    row.addEventListener('click', (event) => {
-      const action = event.target.closest('button[data-action]');
-      if (!action) return;
-      if (action.dataset.action === 'save') {
-        handleSaveRow(row, id);
-      } else if (action.dataset.action === 'reset') {
-        fillRowWithMaterial(row, material);
-      }
-    });
-  });
-};
-
-const updatePaginationControls = () => {
-  if (paginationInfoEl) {
-    paginationInfoEl.textContent = `Página ${materialsState.page} de ${materialsState.totalPages} · ${
-      materialsState.totalItems
-    } registros`;
-  }
-  if (prevPageButton) {
-    prevPageButton.disabled = materialsState.page <= 1 || materialsState.loading;
-  }
-  if (nextPageButton) {
-    nextPageButton.disabled = materialsState.page >= materialsState.totalPages || materialsState.loading;
-  }
-};
-
-const fetchMaterials = async (page = 1) => {
-  if (!tableBody) return;
-  materialsState.loading = true;
-  updatePaginationControls();
-  if (emptyStateEl) {
-    emptyStateEl.textContent = 'Cargando catálogo…';
-  }
+const readJsonPayload = async (response) => {
+  const raw = await response.text();
   try {
-    const endpoint = new URL('/api/materials/list', window.location.origin);
-    endpoint.searchParams.set('page', String(page));
-    endpoint.searchParams.set('limit', String(materialsState.perPage));
-    const response = await fetch(endpoint.toString());
-    if (!response.ok) {
-      throw new Error('No se pudo obtener el catálogo.');
-    }
-    const payload = await readJsonPayload(response);
-    if (!response.ok || !payload.ok) {
-      throw new Error(payload.error || 'No se pudo obtener el catálogo (respuesta no válida).');
-    }
-    const items = payload.items || [];
-    materialCache.clear();
-    items.forEach((item) => {
-      materialCache.set(item.id, item);
-    });
-    materialsState.page = payload.pagination?.page || page;
-    materialsState.totalItems = payload.pagination?.totalItems ?? items.length;
-    materialsState.totalPages = payload.pagination?.totalPages ?? 1;
-    renderMaterialsTable(items);
-    updatePaginationControls();
-  } catch (error) {
-    console.error('Error al cargar materiales:', error);
-    if (tableBody) {
-      tableBody.innerHTML = `<tr><td colspan="5">${error.message}</td></tr>`;
-    }
-  } finally {
-    materialsState.loading = false;
-    updatePaginationControls();
+    return JSON.parse(raw || '{}');
+  } catch (_error) {
+    const snippet = raw ? raw.slice(0, 200).replace(/\s+/g, ' ').trim() : '';
+    const error = new Error(
+      snippet
+        ? `El servidor devolvió HTML en lugar de JSON. Detalle: ${snippet}`
+        : 'El servidor devolvió un formato de respuesta inesperado.'
+    );
+    error.code = 'INVALID_JSON';
+    throw error;
   }
 };
 
-const collectRowPayload = (row) => {
-  const getValue = (selector) => row.querySelector(selector)?.value.trim() || '';
-  return {
-    name: getValue('[data-field="name"]'),
-    category: getValue('[data-field="category"]'),
-    unit: getValue('[data-field="unit"]'),
-    price: getValue('[data-field="price"]'),
-  };
+const requestJson = async (url, options = {}) => {
+  const response = await fetch(url, options);
+  const payload = await readJsonPayload(response);
+  if (!response.ok || (payload.ok !== undefined && payload.ok === false)) {
+    throw new Error(payload.error || 'No se pudo completar la operación.');
+  }
+  return payload;
 };
 
-const handleSaveRow = async (row, id) => {
-  if (!Number.isFinite(id)) return;
-  const payload = collectRowPayload(row);
-  setRowMessage(row, 'Guardando…');
-  disableRowButtons(row, true);
-  try {
-    const response = await fetch(`/api/materials/${id}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-    const payload = await readJsonPayload(response);
-    const data = payload;
-    if (!response.ok || !data.ok) {
-      throw new Error(data.error || 'No se pudo guardar el material.');
-    }
-    materialCache.set(id, data.item);
-    fillRowWithMaterial(row, data.item);
-    setRowMessage(row, 'Cambios guardados.', 'success');
-  } catch (error) {
-    console.error('Error al guardar material:', error);
-    setRowMessage(row, error.message || 'Error al guardar.', 'error');
-  } finally {
-    disableRowButtons(row, false);
-  }
+const formatPriceInputValue = (item) => {
+  if (Number.isFinite(item?.price)) return item.price;
+  if (Number.isFinite(item?.priceCents)) return item.priceCents / 100;
+  if (item?.priceRaw) return item.priceRaw;
+  return '';
 };
 
 const setMaterialImportStatus = (message, variant = 'info') => {
@@ -270,7 +167,20 @@ const setMaterialImportStatus = (message, variant = 'info') => {
   }
 };
 
-const renderMaterialImportSummary = (summary) => {
+const setMaterialImportPending = (isPending) => {
+  if (materialImportSubmitButton) {
+    materialImportSubmitButton.disabled = isPending;
+    materialImportSubmitButton.textContent = isPending ? 'Importando…' : 'Importar';
+  }
+  if (materialImportResetButton) {
+    materialImportResetButton.disabled = isPending;
+  }
+  if (materialImportFileInput) {
+    materialImportFileInput.disabled = isPending;
+  }
+};
+
+const renderImportSummary = (summary) => {
   if (!materialImportSummaryBox || !materialImportSummaryList) return;
   if (!summary) {
     materialImportSummaryBox.hidden = true;
@@ -288,28 +198,182 @@ const renderMaterialImportSummary = (summary) => {
     ['Fecha', summary.lastImportedAt ? new Date(summary.lastImportedAt).toLocaleString('es-AR') : '—'],
   ];
   materialImportSummaryList.innerHTML = entries
-    .map(([label, value]) => `<li><strong>${label}:</strong> ${escapeHtml(String(value))}</li>`)
+    .map(([label, value]) => `<li><strong>${escapeHtml(label)}:</strong> ${escapeHtml(String(value))}</li>`)
     .join('');
   materialImportSummaryBox.hidden = false;
 };
 
-const setMaterialImportPending = (isPending) => {
-  if (materialImportSubmitButton) {
-    materialImportSubmitButton.disabled = isPending;
-    materialImportSubmitButton.textContent = isPending ? 'Importando…' : 'Importar';
+const updateInventoryCopy = () => {
+  const config = INVENTORY_TYPES[currentInventory] || INVENTORY_TYPES.materials;
+  if (importLabelEl) importLabelEl.textContent = config.label;
+  if (datasetLabelEl) datasetLabelEl.textContent = config.label;
+  if (importDescriptionEl) {
+    importDescriptionEl.textContent = config.importDescription || 'Carga un CSV con los registros actualizados.';
   }
-  if (materialImportResetButton) {
-    materialImportResetButton.disabled = isPending;
+  if (datasetDescriptionEl) {
+    datasetDescriptionEl.textContent =
+      config.datasetDescription || 'Revisa el listado completo, navega por páginas y ajusta los valores.';
   }
-  if (materialImportFileInput) {
-    materialImportFileInput.disabled = isPending;
+  if (inventorySearchInput) {
+    inventorySearchInput.placeholder = config.searchPlaceholder || 'Escribe para buscar...';
+  }
+  const manualTitleEl = manualForm?.querySelector('h3');
+  if (manualTitleEl) {
+    manualTitleEl.textContent = `Agregar ${config.label.toLowerCase()} manualmente`;
   }
 };
 
-const handleMaterialImportSubmit = async (event) => {
+const buildRowMarkup = (item, dataset) => {
+  const priceValue = formatPriceInputValue(item);
+  return `
+    <tr data-id="${item.id}" data-inventory="${dataset}">
+      <td><input type="text" data-field="name" value="${escapeHtml(item.name ?? '')}" /></td>
+      <td>
+        <div class="materials-price-field">
+          <span class="materials-price-prefix">$</span>
+          <input
+            type="text"
+            inputmode="decimal"
+            data-field="price"
+            value="${escapeHtml(priceValue ?? '')}"
+            placeholder="${escapeHtml(item.priceRaw ?? '')}"
+          />
+        </div>
+      </td>
+      <td>
+        <div class="materials-row-actions">
+          <button type="button" class="button button--primary" data-action="save">Guardar</button>
+          <button type="button" class="button button--ghost" data-action="reset">Revertir</button>
+          <button type="button" class="button button--ghost button--danger" data-action="remove">Eliminar</button>
+        </div>
+        <small class="materials-alert" data-field="rowStatus"></small>
+      </td>
+    </tr>
+  `;
+};
+
+const fillRowWithItem = (row, item) => {
+  if (!row || !item) return;
+  row.querySelector('[data-field="name"]').value = item.name || '';
+  row.querySelector('[data-field="price"]').value = formatPriceInputValue(item) || '';
+  setRowMessage(row, '');
+};
+
+const renderInventoryTable = (items, dataset) => {
+  if (!tableBody) return;
+  if (!items || items.length === 0) {
+    tableBody.innerHTML = `
+      <tr>
+        <td colspan="3">No hay registros para mostrar.</td>
+      </tr>
+    `;
+    return;
+  }
+  tableBody.innerHTML = items.map((item) => buildRowMarkup(item, dataset)).join('');
+};
+
+const updatePaginationControls = (dataset = currentInventory) => {
+  const state = inventoryStates[dataset];
+  if (!paginationInfoEl) return;
+  if (state.isSearching && state.searchTerm) {
+    paginationInfoEl.textContent = `Coincidencias: ${state.totalItems}`;
+  } else {
+    paginationInfoEl.textContent = `Página ${state.page} de ${state.totalPages} · ${state.totalItems} registros`;
+  }
+  if (prevPageButton) {
+    prevPageButton.disabled = state.loading || state.page <= 1 || state.isSearching;
+  }
+  if (nextPageButton) {
+    nextPageButton.disabled = state.loading || state.page >= state.totalPages || state.isSearching;
+  }
+  if (paginationActions) {
+    paginationActions.classList.toggle('is-disabled', Boolean(state.isSearching && state.searchTerm));
+  }
+};
+
+const fetchInventoryItems = async (dataset = currentInventory, { page = 1, search = null } = {}) => {
+  const state = inventoryStates[dataset];
+  state.loading = true;
+  updatePaginationControls(dataset);
+  if (emptyStateEl) {
+    emptyStateEl.textContent = 'Cargando catálogo…';
+  }
+  try {
+    let items = [];
+    if (search) {
+      const endpoint = new URL(`/api/${dataset}`, window.location.origin);
+      endpoint.searchParams.set('limit', '50');
+      endpoint.searchParams.set('q', search);
+      const payload = await requestJson(endpoint.toString());
+      items = payload.items || [];
+      state.isSearching = true;
+      state.searchTerm = search;
+      state.page = 1;
+      state.totalPages = 1;
+      state.totalItems = items.length;
+    } else {
+      const endpoint = new URL(`/api/${dataset}/list`, window.location.origin);
+      endpoint.searchParams.set('page', String(page));
+      endpoint.searchParams.set('limit', String(state.perPage));
+      const payload = await requestJson(endpoint.toString());
+      items = payload.items || [];
+      const pagination = payload.pagination || {};
+      state.isSearching = false;
+      state.searchTerm = '';
+      state.page = pagination.page || page;
+      state.totalPages = pagination.totalPages ?? 1;
+      state.totalItems = pagination.totalItems ?? items.length;
+    }
+    inventoryCaches[dataset].clear();
+    items.forEach((item) => inventoryCaches[dataset].set(item.id, item));
+    renderInventoryTable(items, dataset);
+    updatePaginationControls(dataset);
+  } catch (error) {
+    console.error('Error al cargar registros:', error);
+    setGlobalMessage(error.message || 'No se pudieron obtener los registros.', 'error');
+    if (tableBody) {
+      tableBody.innerHTML = `<tr><td colspan="5">${escapeHtml(error.message || 'Error inesperado.')}</td></tr>`;
+    }
+  } finally {
+    state.loading = false;
+    updatePaginationControls(dataset);
+  }
+};
+
+const collectRowPayload = (row) => {
+  const getValue = (selector) => row.querySelector(selector)?.value.trim() || '';
+  return {
+    name: getValue('[data-field="name"]'),
+    price: getValue('[data-field="price"]'),
+  };
+};
+
+const handleSaveRow = async (row, id, dataset) => {
+  if (!Number.isFinite(id)) return;
+  const payload = collectRowPayload(row);
+  setRowMessage(row, 'Guardando…');
+  disableRowButtons(row, true);
+  try {
+    const response = await requestJson(`/api/${dataset}/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    inventoryCaches[dataset].set(id, response.item);
+    fillRowWithItem(row, response.item);
+    setRowMessage(row, 'Cambios guardados.', 'success');
+  } catch (error) {
+    console.error('Error al guardar:', error);
+    setRowMessage(row, error.message || 'Error al guardar.', 'error');
+  } finally {
+    disableRowButtons(row, false);
+  }
+};
+
+const handleInventoryImportSubmit = async (event) => {
   event.preventDefault();
   if (!materialImportFileInput || !materialImportFileInput.files || materialImportFileInput.files.length === 0) {
-    setMaterialImportStatus('Seleccioná un archivo antes de importar.', 'error');
+    setMaterialImportStatus('Seleccioná un archivo CSV antes de importar.', 'error');
     materialImportFileInput?.focus();
     return;
   }
@@ -319,68 +383,152 @@ const handleMaterialImportSubmit = async (event) => {
 
   setMaterialImportPending(true);
   setMaterialImportStatus('Procesando archivo…');
-  renderMaterialImportSummary(null);
+  renderImportSummary(null);
 
   try {
-    const response = await fetch('/api/materials/import', {
+    const payload = await requestJson(`/api/${currentInventory}/import`, {
       method: 'POST',
       body: formData,
     });
-    const payload = await readJsonPayload(response);
-    if (!response.ok || !payload.ok) {
-      throw new Error(payload.error || 'No se pudo importar el archivo.');
-    }
-    const summary = payload.summary || {};
-    setMaterialImportStatus(
-      `Importados ${summary.imported ?? 0} · nuevos ${summary.inserted ?? 0} · actualizados ${
-        summary.updated ?? 0
-      }`,
-      'success'
-    );
-    renderMaterialImportSummary(summary);
+    setMaterialImportStatus('Catálogo actualizado exitosamente.', 'success');
+    renderImportSummary(payload.summary);
     materialImportForm?.reset();
-    setGlobalMessage('Catálogo actualizado con éxito.', 'success');
-    await fetchMaterials(1);
+    setGlobalMessage(`Se actualizaron los ${INVENTORY_TYPES[currentInventory].label.toLowerCase()}.`, 'success');
+    await fetchInventoryItems(currentInventory, { page: 1 });
   } catch (error) {
-    console.error('Error al importar materiales:', error);
-    setMaterialImportStatus(error.message || 'Error al importar.', 'error');
-    setGlobalMessage('No se pudo actualizar el catálogo.', 'error');
+    console.error('Error al importar:', error);
+    setMaterialImportStatus(error.message || 'No se pudo importar el archivo.', 'error');
   } finally {
     setMaterialImportPending(false);
   }
 };
 
-const setupImportForm = () => {
-  if (!materialImportForm) return;
-  materialImportForm.addEventListener('submit', handleMaterialImportSubmit);
-  if (materialImportResetButton) {
-    materialImportResetButton.addEventListener('click', () => {
-      materialImportForm.reset();
-      setMaterialImportStatus('');
-      renderMaterialImportSummary(null);
+const handleManualSubmit = async (event) => {
+  event.preventDefault();
+  const payload = {
+    name: manualFields.name?.value.trim(),
+    price: manualFields.price?.value.trim(),
+  };
+  if (!payload.name || !payload.price) {
+    window.alert('Completa al menos el nombre y el precio.');
+    return;
+  }
+  try {
+    await requestJson(`/api/${currentInventory}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
+    setGlobalMessage('Registro agregado correctamente.', 'success');
+    manualForm?.reset();
+    fetchInventoryItems(currentInventory, { page: 1 });
+  } catch (error) {
+    console.error('Error al crear registro:', error);
+    setGlobalMessage(error.message || 'No se pudo guardar el registro.', 'error');
   }
 };
 
-const setupPagination = () => {
+const handleSearch = debounce((term) => {
+  if (term && term.length >= 2) {
+    fetchInventoryItems(currentInventory, { search: term });
+  } else if (!term) {
+    fetchInventoryItems(currentInventory, { page: 1 });
+  }
+}, 300);
+
+const handleTabClick = (dataset) => {
+  if (dataset === currentInventory) return;
+  currentInventory = dataset;
+  inventoryTabs.forEach((button) => {
+    if (button.dataset.inventoryTab === dataset) {
+      button.classList.add('is-active');
+    } else {
+      button.classList.remove('is-active');
+    }
+  });
+  inventorySearchInput.value = '';
+  renderImportSummary(null);
+  setMaterialImportStatus('');
+  setGlobalMessage('');
+  updateInventoryCopy();
+  fetchInventoryItems(currentInventory, { page: inventoryStates[currentInventory].page });
+};
+
+const initializeInventoryManager = () => {
+  updateInventoryCopy();
+  fetchInventoryItems(currentInventory);
+
+  inventoryTabs.forEach((button) => {
+    button.addEventListener('click', () => handleTabClick(button.dataset.inventoryTab));
+  });
+
   if (prevPageButton) {
     prevPageButton.addEventListener('click', () => {
-      if (materialsState.page > 1) {
-        fetchMaterials(materialsState.page - 1);
+      const state = inventoryStates[currentInventory];
+      if (state.page > 1 && !state.isSearching) {
+        fetchInventoryItems(currentInventory, { page: state.page - 1 });
       }
     });
   }
+
   if (nextPageButton) {
     nextPageButton.addEventListener('click', () => {
-      if (materialsState.page < materialsState.totalPages) {
-        fetchMaterials(materialsState.page + 1);
+      const state = inventoryStates[currentInventory];
+      if (state.page < state.totalPages && !state.isSearching) {
+        fetchInventoryItems(currentInventory, { page: state.page + 1 });
       }
+    });
+  }
+
+  if (inventorySearchInput) {
+    inventorySearchInput.addEventListener('input', (event) => {
+      const term = event.target.value.trim();
+      handleSearch(term);
+    });
+  }
+
+  if (inventorySearchClear) {
+    inventorySearchClear.addEventListener('click', () => {
+      inventorySearchInput.value = '';
+      fetchInventoryItems(currentInventory, { page: 1 });
+    });
+  }
+
+  if (tableBody) {
+    tableBody.addEventListener('click', (event) => {
+      const actionButton = event.target.closest('button[data-action]');
+      if (!actionButton) return;
+      const row = actionButton.closest('tr');
+      if (!row) return;
+      const dataset = row.dataset.inventory || currentInventory;
+      const id = Number.parseInt(row.dataset.id, 10);
+      if (actionButton.dataset.action === 'save') {
+        handleSaveRow(row, id, dataset);
+      } else if (actionButton.dataset.action === 'reset') {
+        const cacheItem = inventoryCaches[dataset].get(id);
+        fillRowWithItem(row, cacheItem);
+        setRowMessage(row, 'Valores originales restaurados.');
+      }
+    });
+  }
+
+  if (materialImportForm) {
+    materialImportForm.addEventListener('submit', handleInventoryImportSubmit);
+  }
+  if (materialImportResetButton) {
+    materialImportResetButton.addEventListener('click', () => {
+      materialImportForm?.reset();
+      setMaterialImportStatus('');
+      renderImportSummary(null);
+    });
+  }
+
+  if (manualForm) {
+    manualForm.addEventListener('submit', handleManualSubmit);
+    manualForm.addEventListener('reset', () => {
+      setGlobalMessage('');
     });
   }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-  setupImportForm();
-  setupPagination();
-  fetchMaterials(materialsState.page);
-});
+document.addEventListener('DOMContentLoaded', initializeInventoryManager);

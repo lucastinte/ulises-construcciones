@@ -70,23 +70,6 @@ db.exec(`
   );
 `);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS materials (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    normalized_name TEXT NOT NULL UNIQUE,
-    category TEXT,
-    unit TEXT,
-    price_cents INTEGER,
-    price_raw TEXT,
-    currency TEXT,
-    last_imported_at TEXT,
-    extra_json TEXT
-  );
-  CREATE INDEX IF NOT EXISTS idx_materials_normalized ON materials (normalized_name);
-  CREATE INDEX IF NOT EXISTS idx_materials_last_imported ON materials (last_imported_at);
-`);
-
 const ensureCatalogColumn = (columnName) => {
   const exists = db
     .prepare("SELECT 1 FROM pragma_table_info('catalog_entries') WHERE name = ?")
@@ -166,77 +149,125 @@ const deleteCatalogEntryStmt = db.prepare(`
 `);
 
 const countCatalogEntriesStmt = db.prepare(`SELECT COUNT(*) AS total FROM catalog_entries`);
-const countMaterialsStmt = db.prepare(`SELECT COUNT(*) AS total FROM materials`);
 
-const findMaterialByNormalizedNameStmt = db.prepare(`
-  SELECT id FROM materials WHERE normalized_name = @normalizedName
-`);
+const createInventoryModel = (tableName) => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ${tableName} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      normalized_name TEXT NOT NULL UNIQUE,
+      price_cents INTEGER,
+      price_raw TEXT,
+      currency TEXT,
+      last_imported_at TEXT,
+      extra_json TEXT
+    );
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_${tableName}_normalized ON ${tableName} (normalized_name);`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_${tableName}_last_imported ON ${tableName} (last_imported_at);`);
 
-const insertMaterialStmt = db.prepare(`
-  INSERT INTO materials (
-    name, normalized_name, category, unit, price_cents, price_raw, currency, last_imported_at, extra_json
-  ) VALUES (
-    @name, @normalizedName, @category, @unit, @priceCents, @priceRaw, @currency, @lastImportedAt, @extraJson
-  )
-`);
+  const findByNormalizedNameStmt = db.prepare(
+    `SELECT id FROM ${tableName} WHERE normalized_name = @normalizedName`
+  );
+  const insertStmt = db.prepare(`
+    INSERT INTO ${tableName} (
+      name, normalized_name, price_cents, price_raw, currency, last_imported_at, extra_json
+    ) VALUES (
+      @name, @normalizedName, @priceCents, @priceRaw, @currency, @lastImportedAt, @extraJson
+    )
+  `);
+  const importUpdateStmt = db.prepare(`
+    UPDATE ${tableName} SET
+      name = @name,
+      price_cents = @priceCents,
+      price_raw = @priceRaw,
+      currency = @currency,
+      last_imported_at = @lastImportedAt,
+      extra_json = @extraJson
+    WHERE id = @id
+  `);
+  const manualUpdateStmt = db.prepare(`
+    UPDATE ${tableName} SET
+      name = @name,
+      normalized_name = @normalizedName,
+      price_cents = @priceCents,
+      price_raw = @priceRaw,
+      currency = @currency,
+      last_imported_at = @lastImportedAt,
+      extra_json = @extraJson
+    WHERE id = @id
+  `);
+  const listRecentStmt = db.prepare(`
+    SELECT id, name, price_cents, price_raw, currency, last_imported_at, extra_json
+    FROM ${tableName}
+    ORDER BY
+      CASE WHEN last_imported_at IS NULL THEN 1 ELSE 0 END,
+      last_imported_at DESC,
+      name ASC
+    LIMIT @limit
+  `);
+  const searchStmt = db.prepare(`
+    SELECT id, name, price_cents, price_raw, currency, last_imported_at, extra_json
+    FROM ${tableName}
+    WHERE normalized_name LIKE @pattern
+    ORDER BY name ASC
+    LIMIT @limit
+  `);
+  const listPaginatedStmt = db.prepare(`
+    SELECT id, name, price_cents, price_raw, currency, last_imported_at, extra_json
+    FROM ${tableName}
+    ORDER BY name ASC
+    LIMIT @limit OFFSET @offset
+  `);
+  const getByIdStmt = db.prepare(`
+    SELECT id, name, price_cents, price_raw, currency, last_imported_at, extra_json
+    FROM ${tableName}
+    WHERE id = @id
+  `);
+  const countStmt = db.prepare(`SELECT COUNT(*) AS total FROM ${tableName}`);
 
-const updateMaterialStmt = db.prepare(`
-  UPDATE materials SET
-    name = @name,
-    category = COALESCE(@category, category),
-    unit = COALESCE(@unit, unit),
-    price_cents = @priceCents,
-    price_raw = @priceRaw,
-    currency = @currency,
-    last_imported_at = @lastImportedAt,
-    extra_json = @extraJson
-  WHERE id = @id
-`);
+  const saveTransaction = db.transaction((items) => {
+    let inserted = 0;
+    let updated = 0;
+    items.forEach((item) => {
+      const existing = findByNormalizedNameStmt.get({ normalizedName: item.normalizedName });
+      if (existing) {
+        importUpdateStmt.run({ ...item, id: existing.id });
+        updated += 1;
+      } else {
+        insertStmt.run(item);
+        inserted += 1;
+      }
+    });
+    return { inserted, updated };
+  });
 
-const listRecentMaterialsStmt = db.prepare(`
-  SELECT id, name, category, unit, price_cents, price_raw, currency, last_imported_at, extra_json
-  FROM materials
-  ORDER BY
-    CASE WHEN last_imported_at IS NULL THEN 1 ELSE 0 END,
-    last_imported_at DESC,
-    name ASC
-  LIMIT @limit
-`);
+  return {
+    tableName,
+    findByNormalizedNameStmt,
+    insertStmt,
+    importUpdateStmt,
+    manualUpdateStmt,
+    listRecentStmt,
+    searchStmt,
+    listPaginatedStmt,
+    getByIdStmt,
+    countStmt,
+    saveTransaction,
+  };
+};
 
-const searchMaterialsStmt = db.prepare(`
-  SELECT id, name, category, unit, price_cents, price_raw, currency, last_imported_at, extra_json
-  FROM materials
-  WHERE normalized_name LIKE @pattern
-  ORDER BY name ASC
-  LIMIT @limit
-`);
+const inventoryModels = {
+  materials: createInventoryModel('materials'),
+  supplies: createInventoryModel('supplies'),
+  labor: createInventoryModel('labor_items'),
+};
 
-const listMaterialsPaginatedStmt = db.prepare(`
-  SELECT id, name, category, unit, price_cents, price_raw, currency, last_imported_at, extra_json
-  FROM materials
-  ORDER BY name ASC
-  LIMIT @limit OFFSET @offset
-`);
-
-const getMaterialByIdStmt = db.prepare(`
-  SELECT id, name, category, unit, price_cents, price_raw, currency, last_imported_at, extra_json
-  FROM materials
-  WHERE id = @id
-`);
-
-const updateMaterialManualStmt = db.prepare(`
-  UPDATE materials SET
-    name = @name,
-    normalized_name = @normalizedName,
-    category = @category,
-    unit = @unit,
-    price_cents = @priceCents,
-    price_raw = @priceRaw,
-    currency = @currency,
-    last_imported_at = @lastImportedAt,
-    extra_json = @extraJson
-  WHERE id = @id
-`);
+const inventoryMeta = {
+  materials: { label: 'Materiales', path: 'materials' },
+  supplies: { label: 'Insumos', path: 'supplies' },
+  labor: { label: 'Mano de obra', path: 'labor' },
+};
 
 const sanitizeName = (value) =>
   String(value || '')
@@ -394,7 +425,7 @@ const findPriceCandidate = (row = []) => {
   return null;
 };
 
-const buildMaterialFromRow = (row = []) => {
+const buildInventoryItemFromRow = (row = []) => {
   if (!Array.isArray(row) || row.length === 0) return null;
   const normalizedRow = normalizeRowValues(row);
   const name = sanitizeText(normalizedRow[0]);
@@ -405,21 +436,17 @@ const buildMaterialFromRow = (row = []) => {
   if (priceCandidate === null || priceCandidate === undefined) return null;
   const priceInfo = parsePriceValue(priceCandidate);
   if (!priceInfo) return null;
-  const category = sanitizeText(normalizedRow[1]) || null;
-  const unit = sanitizeText(normalizedRow[2]) || null;
   const extra = { rawRow: normalizedRow };
   return {
     name,
     normalizedName,
-    category,
-    unit,
     priceCents: priceInfo.cents,
     priceRaw: priceInfo.raw,
     extraJson: JSON.stringify(extra),
   };
 };
 
-const parseMaterialsFromBuffer = (buffer) => {
+const parseInventoryItemsFromBuffer = (buffer) => {
   if (!buffer || buffer.length === 0) {
     const error = new Error('No se detectaron datos en el archivo.');
     error.code = 'EMPTY_IMPORT';
@@ -459,7 +486,7 @@ const parseMaterialsFromBuffer = (buffer) => {
   let duplicates = 0;
 
   rows.forEach((row) => {
-    const material = buildMaterialFromRow(row);
+    const material = buildInventoryItemFromRow(row);
     if (!material) {
       skipped += 1;
       return;
@@ -482,13 +509,11 @@ const parseMaterialsFromBuffer = (buffer) => {
   };
 };
 
-const toMaterialResponse = (row) => {
+const toInventoryItemResponse = (row) => {
   if (!row) return null;
   return {
     id: row.id,
     name: row.name,
-    category: row.category,
-    unit: row.unit,
     price: Number.isFinite(row.price_cents) ? row.price_cents / 100 : null,
     priceCents: row.price_cents ?? null,
     priceRaw: row.price_raw,
@@ -498,46 +523,22 @@ const toMaterialResponse = (row) => {
   };
 };
 
-const saveMaterialsTransaction = db.transaction((items) => {
-  let inserted = 0;
-  let updated = 0;
-  items.forEach((item) => {
-    const existing = findMaterialByNormalizedNameStmt.get({ normalizedName: item.normalizedName });
-    if (existing) {
-      updateMaterialStmt.run({ ...item, id: existing.id });
-      updated += 1;
-    } else {
-      insertMaterialStmt.run(item);
-      inserted += 1;
-    }
-  });
-  return { inserted, updated };
-});
-
-const buildManualMaterialUpdate = (row, body = {}) => {
-  if (!row) {
-    const error = new Error('Material no encontrado.');
-    error.code = 'MATERIAL_NOT_FOUND';
+const buildInventoryItemPayload = (row, body = {}) => {
+  const baseRow = row || {};
+  const name = sanitizeText(body.name ?? baseRow.name);
+  if (!name) {
+    const error = new Error('El nombre es obligatorio.');
+    error.code = 'INVALID_NAME';
     throw error;
   }
-  const name = sanitizeText(body.name ?? row.name);
   const normalizedName = normalizeMaterialName(name);
   if (!normalizedName) {
     const error = new Error('El nombre es obligatorio.');
     error.code = 'INVALID_NAME';
     throw error;
   }
-  const category =
-    Object.prototype.hasOwnProperty.call(body, 'category') && body.category !== undefined
-      ? sanitizeText(body.category) || null
-      : row.category;
-  const unit =
-    Object.prototype.hasOwnProperty.call(body, 'unit') && body.unit !== undefined
-      ? sanitizeText(body.unit) || null
-      : row.unit;
-
-  let priceCents = row.price_cents ?? null;
-  let priceRaw = row.price_raw ?? null;
+  let priceCents = baseRow.price_cents ?? null;
+  let priceRaw = baseRow.price_raw ?? null;
   if (
     Object.prototype.hasOwnProperty.call(body, 'price') ||
     Object.prototype.hasOwnProperty.call(body, 'priceRaw')
@@ -551,20 +552,22 @@ const buildManualMaterialUpdate = (row, body = {}) => {
     }
     priceCents = parsedPrice.cents;
     priceRaw = parsedPrice.raw;
+  } else if (!row) {
+    const error = new Error('El precio es obligatorio.');
+    error.code = 'INVALID_PRICE';
+    throw error;
   }
 
-  const currency = sanitizeCurrency(body.currency ?? row.currency ?? MATERIAL_DEFAULT_CURRENCY);
+  const currency = sanitizeCurrency(body.currency ?? baseRow.currency ?? MATERIAL_DEFAULT_CURRENCY);
   const lastImportedAt = new Date().toISOString();
-  const existingExtra = parseJsonField(row.extra_json) || {};
+  const existingExtra = parseJsonField(baseRow.extra_json) || {};
   const mergedExtra =
     body.extra && typeof body.extra === 'object' ? { ...existingExtra, ...body.extra } : existingExtra;
 
   return {
-    id: row.id,
+    id: baseRow.id,
     name,
     normalizedName,
-    category,
-    unit,
     priceCents,
     priceRaw,
     currency,
@@ -683,149 +686,182 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   }
 });
 
-const handleMaterialImportUpload = excelUpload.single('file');
+const handleInventoryImportUpload = excelUpload.single('file');
 
-app.post('/api/materials/import', (req, res) => {
-  handleMaterialImportUpload(req, res, (uploadError) => {
-    if (uploadError) {
-      if (uploadError.code === 'LIMIT_FILE_SIZE') {
-        res.status(413).json({
-          ok: false,
-          error: `El archivo supera el máximo permitido (${MAX_UPLOAD_MB} MB).`,
-        });
+const registerInventoryRoutes = (slug, model) => {
+  const meta = inventoryMeta[slug] || { label: 'Catálogo' };
+
+  app.post(`/api/${slug}/import`, (req, res) => {
+    handleInventoryImportUpload(req, res, (uploadError) => {
+      if (uploadError) {
+        if (uploadError.code === 'LIMIT_FILE_SIZE') {
+          res.status(413).json({
+            ok: false,
+            error: `El archivo supera el máximo permitido (${MAX_UPLOAD_MB} MB).`,
+          });
+          return;
+        }
+        res.status(400).json({ ok: false, error: 'No se pudo leer el archivo enviado.' });
         return;
       }
-      res.status(400).json({ ok: false, error: 'No se pudo leer el archivo enviado.' });
-      return;
-    }
-    try {
-      if (!req.file) {
-        res.status(400).json({ ok: false, error: 'Adjunta un archivo .csv con la lista de materiales.' });
-        return;
-      }
-      const extensionValid = /\.csv$/i.test(req.file.originalname || '');
-      if (!extensionValid) {
-        res.status(400).json({ ok: false, error: 'Solo se aceptan archivos con extensión .csv.' });
-        return;
-      }
-      const currency = sanitizeCurrency(req.body?.currency);
-      const parsed = parseMaterialsFromBuffer(req.file.buffer);
-      if (!parsed.items || parsed.items.length === 0) {
-        res.status(400).json({ ok: false, error: 'No se encontraron materiales válidos en el archivo.' });
-        return;
-      }
-      const timestamp = new Date().toISOString();
-      const payload = parsed.items.map((item) => ({
-        ...item,
-        currency,
-        lastImportedAt: timestamp,
-      }));
-      const { inserted, updated } = saveMaterialsTransaction(payload);
-      res.json({
-        ok: true,
-        summary: {
-          rowsRead: parsed.rowsRead,
-          imported: payload.length,
-          inserted,
-          updated,
-          skipped: parsed.skipped,
-          duplicates: parsed.duplicates,
+      try {
+        if (!req.file) {
+          res.status(400).json({ ok: false, error: 'Adjunta un archivo .csv con la lista.' });
+          return;
+        }
+        const extensionValid = /\.csv$/i.test(req.file.originalname || '');
+        if (!extensionValid) {
+          res.status(400).json({ ok: false, error: 'Solo se aceptan archivos con extensión .csv.' });
+          return;
+        }
+        const currency = sanitizeCurrency(req.body?.currency);
+        const parsed = parseInventoryItemsFromBuffer(req.file.buffer);
+        if (!parsed.items || parsed.items.length === 0) {
+          res.status(400).json({ ok: false, error: 'No se encontraron registros válidos en el archivo.' });
+          return;
+        }
+        const timestamp = new Date().toISOString();
+        const payload = parsed.items.map((item) => ({
+          ...item,
           currency,
           lastImportedAt: timestamp,
+        }));
+        const { inserted, updated } = model.saveTransaction(payload);
+        res.json({
+          ok: true,
+          summary: {
+            rowsRead: parsed.rowsRead,
+            imported: payload.length,
+            inserted,
+            updated,
+            skipped: parsed.skipped,
+            duplicates: parsed.duplicates,
+            currency,
+            lastImportedAt: timestamp,
+          },
+        });
+      } catch (error) {
+        if (error.code === 'EMPTY_IMPORT' || error.code === 'INVALID_EXCEL') {
+          res.status(400).json({ ok: false, error: error.message });
+          return;
+        }
+        console.error(`Error al importar ${meta.label.toLowerCase()}:`, error);
+        res.status(500).json({ ok: false, error: 'No se pudo importar la lista.' });
+      }
+    });
+  });
+
+  app.get(`/api/${slug}`, (req, res) => {
+    try {
+      const limit = Math.max(
+        1,
+        Math.min(Number.parseInt(req.query.limit || String(MATERIAL_QUERY_LIMIT), 10), MATERIAL_QUERY_LIMIT)
+      );
+      const query = sanitizeText(req.query.q || '');
+      let rows = [];
+      if (query) {
+        const normalized = normalizeMaterialName(query);
+        if (normalized) {
+          const pattern = `%${normalized.replace(/\s+/g, '%')}%`;
+          rows = model.searchStmt.all({ pattern, limit });
+        } else {
+          rows = model.listRecentStmt.all({ limit });
+        }
+      } else {
+        rows = model.listRecentStmt.all({ limit });
+      }
+      res.json({ ok: true, items: rows.map(toInventoryItemResponse) });
+    } catch (error) {
+      console.error(`Error al consultar ${meta.label.toLowerCase()}:`, error);
+      res.status(500).json({ ok: false, error: 'No se pudieron obtener los registros.' });
+    }
+  });
+
+  app.get(`/api/${slug}/list`, (req, res) => {
+    try {
+      const limit = Math.max(5, Math.min(Number.parseInt(req.query.limit || '20', 10), 100));
+      const pageRaw = Number.parseInt(req.query.page || '1', 10);
+      const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+      const offset = (page - 1) * limit;
+      const rows = model.listPaginatedStmt.all({ limit, offset });
+      const totalRow = model.countStmt.get();
+      const totalItems = totalRow?.total ?? 0;
+      const totalPages = totalItems > 0 ? Math.ceil(totalItems / limit) : 1;
+      res.json({
+        ok: true,
+        items: rows.map(toInventoryItemResponse),
+        pagination: {
+          page,
+          perPage: limit,
+          totalItems,
+          totalPages,
         },
       });
     } catch (error) {
-      if (error.code === 'EMPTY_IMPORT' || error.code === 'INVALID_EXCEL') {
+      console.error(`Error al paginar ${meta.label.toLowerCase()}:`, error);
+      res.status(500).json({ ok: false, error: 'No se pudo obtener el listado paginado.' });
+    }
+  });
+
+  app.post(`/api/${slug}`, (req, res) => {
+    try {
+      const params = buildInventoryItemPayload(null, req.body || {});
+      const existing = model.findByNormalizedNameStmt.get({ normalizedName: params.normalizedName });
+      if (existing) {
+        res.status(409).json({ ok: false, error: 'Ya existe un registro con ese nombre.' });
+        return;
+      }
+      const info = model.insertStmt.run(params);
+      const row = model.getByIdStmt.get({ id: info.lastInsertRowid });
+      res.status(201).json({ ok: true, item: toInventoryItemResponse(row) });
+    } catch (error) {
+      if (error.code === 'INVALID_NAME' || error.code === 'INVALID_PRICE') {
         res.status(400).json({ ok: false, error: error.message });
         return;
       }
-      console.error('Error al importar materiales:', error);
-      res.status(500).json({ ok: false, error: 'No se pudo importar la lista de materiales.' });
+      if (error.code && error.code.startsWith('SQLITE_CONSTRAINT')) {
+        res.status(409).json({ ok: false, error: 'Ya existe un registro con ese nombre.' });
+        return;
+      }
+      console.error(`Error al crear ${meta.label.toLowerCase()}:`, error);
+      res.status(500).json({ ok: false, error: 'No se pudo crear el registro.' });
     }
   });
-});
 
-app.get('/api/materials', (req, res) => {
-  try {
-    const limit = Math.max(
-      1,
-      Math.min(Number.parseInt(req.query.limit || String(MATERIAL_QUERY_LIMIT), 10), MATERIAL_QUERY_LIMIT)
-    );
-    const query = sanitizeText(req.query.q || '');
-    let rows = [];
-    if (query) {
-      const normalized = normalizeMaterialName(query);
-      if (normalized) {
-        const pattern = `%${normalized.replace(/\s+/g, '%')}%`;
-        rows = searchMaterialsStmt.all({ pattern, limit });
-      } else {
-        rows = listRecentMaterialsStmt.all({ limit });
+  app.patch(`/api/${slug}/:id`, (req, res) => {
+    try {
+      const id = Number.parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        res.status(400).json({ ok: false, error: 'ID inválido.' });
+        return;
       }
-    } else {
-      rows = listRecentMaterialsStmt.all({ limit });
+      const current = model.getByIdStmt.get({ id });
+      if (!current) {
+        res.status(404).json({ ok: false, error: 'Registro no encontrado.' });
+        return;
+      }
+      const params = buildInventoryItemPayload(current, req.body || {});
+      model.manualUpdateStmt.run(params);
+      const updated = model.getByIdStmt.get({ id });
+      res.json({ ok: true, item: toInventoryItemResponse(updated) });
+    } catch (error) {
+      if (error.code === 'INVALID_NAME' || error.code === 'INVALID_PRICE') {
+        res.status(400).json({ ok: false, error: error.message });
+        return;
+      }
+      if (error.code && error.code.startsWith('SQLITE_CONSTRAINT')) {
+        res.status(409).json({ ok: false, error: 'Ya existe otro registro con ese nombre.' });
+        return;
+      }
+      console.error(`Error al actualizar ${meta.label.toLowerCase()}:`, error);
+      res.status(500).json({ ok: false, error: 'No se pudo guardar el registro.' });
     }
-    res.json({ ok: true, items: rows.map(toMaterialResponse) });
-  } catch (error) {
-    console.error('Error al consultar materiales:', error);
-    res.status(500).json({ ok: false, error: 'No se pudieron obtener los materiales.' });
-  }
-});
+  });
+};
 
-app.get('/api/materials/list', (req, res) => {
-  try {
-    const limit = Math.max(5, Math.min(Number.parseInt(req.query.limit || '20', 10), 100));
-    const pageRaw = Number.parseInt(req.query.page || '1', 10);
-    const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
-    const offset = (page - 1) * limit;
-    const rows = listMaterialsPaginatedStmt.all({ limit, offset });
-    const totalRow = countMaterialsStmt.get();
-    const totalItems = totalRow?.total ?? 0;
-    const totalPages = totalItems > 0 ? Math.ceil(totalItems / limit) : 1;
-    res.json({
-      ok: true,
-      items: rows.map(toMaterialResponse),
-      pagination: {
-        page,
-        perPage: limit,
-        totalItems,
-        totalPages,
-      },
-    });
-  } catch (error) {
-    console.error('Error al paginar materiales:', error);
-    res.status(500).json({ ok: false, error: 'No se pudo obtener el listado paginado.' });
-  }
-});
-
-app.patch('/api/materials/:id', (req, res) => {
-  try {
-    const id = Number.parseInt(req.params.id, 10);
-    if (!Number.isFinite(id) || id <= 0) {
-      res.status(400).json({ ok: false, error: 'ID inválido.' });
-      return;
-    }
-    const current = getMaterialByIdStmt.get({ id });
-    if (!current) {
-      res.status(404).json({ ok: false, error: 'Material no encontrado.' });
-      return;
-    }
-    const params = buildManualMaterialUpdate(current, req.body || {});
-    updateMaterialManualStmt.run(params);
-    const updated = getMaterialByIdStmt.get({ id });
-    res.json({ ok: true, item: toMaterialResponse(updated) });
-  } catch (error) {
-    if (error.code === 'INVALID_NAME' || error.code === 'INVALID_PRICE') {
-      res.status(400).json({ ok: false, error: error.message });
-      return;
-    }
-    if (error.code && error.code.startsWith('SQLITE_CONSTRAINT')) {
-      res.status(409).json({ ok: false, error: 'Ya existe otro material con ese nombre.' });
-      return;
-    }
-    console.error('Error al actualizar material:', error);
-    res.status(500).json({ ok: false, error: 'No se pudo guardar el material.' });
-  }
-});
+registerInventoryRoutes('materials', inventoryModels.materials);
+registerInventoryRoutes('supplies', inventoryModels.supplies);
+registerInventoryRoutes('labor', inventoryModels.labor);
 
 app.get('/api/catalog', (req, res) => {
   try {

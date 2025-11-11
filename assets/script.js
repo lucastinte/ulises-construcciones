@@ -121,6 +121,11 @@ const MAX_MEDIA_ITEMS = 5;
 const MATERIAL_SUGGESTION_LIMIT = 12;
 const MATERIAL_INLINE_LIMIT = 8;
 const MATERIAL_SEARCH_DELAY = 280;
+const SECTION_DATASET_MAP = {
+  materials: 'materials',
+  supplies: 'supplies',
+  labor: 'labor',
+};
 
 const summaryValues = {
   materials: 0,
@@ -145,7 +150,7 @@ let catalogDocuments = [];
 let materialSuggestionsAbortController = null;
 let materialSuggestionItems = [];
 
-const getMaterialUnitCost = (material) => {
+const getInventoryUnitCost = (material) => {
   if (!material) return 0;
   if (Number.isFinite(material.price)) return material.price;
   if (Number.isFinite(material.priceCents)) return material.priceCents / 100;
@@ -531,8 +536,13 @@ function debounce(fn, delay = 250) {
   };
 }
 
-async function fetchMaterialSuggestionsList(term = '', limit = MATERIAL_SUGGESTION_LIMIT, signal) {
-  const endpoint = new URL('/api/materials', window.location.origin);
+async function fetchMaterialSuggestionsList(
+  dataset = 'materials',
+  term = '',
+  limit = MATERIAL_SUGGESTION_LIMIT,
+  signal
+) {
+  const endpoint = new URL(`/api/${dataset}`, window.location.origin);
   if (term) {
     endpoint.searchParams.set('q', term);
   }
@@ -697,9 +707,7 @@ function createBudgetRow(sectionKey, data = {}) {
     scheduleSave();
   });
 
-  if (sectionKey === 'materials') {
-    attachMaterialInlineAutocomplete(row);
-  }
+  attachInventoryInlineAutocomplete(row, sectionKey);
 
   return row;
 }
@@ -711,7 +719,8 @@ function addBudgetRow(sectionKey, data) {
   updateRowTotal(row, sectionKey);
 }
 
-function attachMaterialInlineAutocomplete(row) {
+function attachInventoryInlineAutocomplete(row, sectionKey) {
+  const dataset = SECTION_DATASET_MAP[sectionKey] || 'materials';
   const conceptInput = row.querySelector('[data-field="concept"]');
   const unitCostInput = row.querySelector('[data-field="unitCost"]');
   const suggestionList = row.querySelector('[data-role="inline-material-suggestions"]');
@@ -747,32 +756,33 @@ function attachMaterialInlineAutocomplete(row) {
       .map((item, index) => {
         const priceLabel =
           Number.isFinite(item.price) && item.price !== null ? formatCurrency(item.price) : item.priceRaw || '—';
-        const categoryLabel = item.category ? escapeHtml(item.category) : 'Sin categoría';
-      return `<li>
-        <button type="button" data-inline-material-index="${index}">
-          <span class="material-inline-suggestions__name">${escapeHtml(item.name)}</span>
-          <span class="material-inline-suggestions__meta">
-            <span class="material-inline-suggestions__category">${categoryLabel}</span>
+        return `<li>
+          <button type="button" data-inline-material-index="${index}">
+            <span class="material-inline-suggestions__name">${escapeHtml(item.name)}</span>
             <span class="material-inline-suggestions__price">${escapeHtml(priceLabel)}</span>
-          </span>
-        </button>
-      </li>`;
+          </button>
+        </li>`;
       })
       .join('');
   };
 
-  const searchMaterials = async (term) => {
+  const searchItems = async (term) => {
     if (inlineAbortController) {
       inlineAbortController.abort();
     }
     inlineAbortController = new AbortController();
     renderSuggestions([], { loading: true });
     try {
-      currentItems = await fetchMaterialSuggestionsList(term, MATERIAL_INLINE_LIMIT, inlineAbortController.signal);
+      currentItems = await fetchMaterialSuggestionsList(
+        dataset,
+        term,
+        MATERIAL_INLINE_LIMIT,
+        inlineAbortController.signal
+      );
       renderSuggestions(currentItems);
     } catch (error) {
       if (error.name === 'AbortError') return;
-      console.error('Error al buscar materiales (fila):', error);
+      console.error('Error al buscar registros (fila):', error);
       renderSuggestions([], { error: 'Error al buscar.' });
     }
   };
@@ -782,7 +792,7 @@ function attachMaterialInlineAutocomplete(row) {
       hideSuggestions();
       return;
     }
-    searchMaterials(term);
+    searchItems(term);
   }, MATERIAL_SEARCH_DELAY);
 
   conceptInput.addEventListener('input', (event) => {
@@ -816,10 +826,10 @@ function attachMaterialInlineAutocomplete(row) {
     const material = currentItems[index];
     if (!material) return;
     conceptInput.value = material.name || '';
-    const unitCost = getMaterialUnitCost(material);
+    const unitCost = getInventoryUnitCost(material);
     unitCostInput.value = Number.isFinite(unitCost) ? unitCost : 0;
     hideSuggestions();
-    updateRowTotal(row, 'materials');
+    updateRowTotal(row, sectionKey);
     scheduleSave();
   });
 }
@@ -858,16 +868,10 @@ function renderMaterialSuggestions(items, options = {}) {
     .map((item, index) => {
       const priceLabel =
         Number.isFinite(item.price) && item.price !== null ? formatCurrency(item.price) : item.priceRaw || '—';
-      const categoryLabel = item.category ? escapeHtml(item.category) : 'Sin categoría';
-      const unitLabel = item.unit ? `• ${escapeHtml(item.unit)}` : '';
       return `<li>
         <button type="button" data-material-index="${index}">
           <span class="material-suggestion__name">${escapeHtml(item.name)}</span>
           <span class="material-suggestion__price">${escapeHtml(priceLabel)}</span>
-          <span class="material-suggestion__meta">
-            <span>${categoryLabel}</span>
-            ${unitLabel ? `<span>${unitLabel}</span>` : ''}
-          </span>
         </button>
       </li>`;
     })
@@ -884,6 +888,7 @@ async function requestMaterialSuggestions(term = '', options = {}) {
   renderMaterialSuggestions([], { loading: true });
   try {
     materialSuggestionItems = await fetchMaterialSuggestionsList(
+      'materials',
       term,
       MATERIAL_SUGGESTION_LIMIT,
       materialSuggestionsAbortController.signal
@@ -900,7 +905,7 @@ async function requestMaterialSuggestions(term = '', options = {}) {
 
 function addMaterialToBudget(material) {
   if (!material) return;
-  const unitCost = getMaterialUnitCost(material);
+  const unitCost = getInventoryUnitCost(material);
   addBudgetRow('materials', {
     concept: material.name,
     quantity: 1,

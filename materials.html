@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gestor de Materiales - Ulises Construcciones</title>
+    <title>Panel de Catálogos - Ulises Construcciones</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -19,8 +19,8 @@
         <div class="branding">
           <div class="logo">UC</div>
           <div class="brand-text">
-            <h1>Gestor de materiales</h1>
-            <p>Catálogo y precios</p>
+            <h1>Panel de catálogos</h1>
+            <p>Materiales · Insumos · Mano de obra</p>
           </div>
         </div>
         <div class="app-header__controls">
@@ -28,16 +28,23 @@
         </div>
       </div>
       <p>
-        Sube la lista azul en Excel, revisa todos los registros con paginación y actualiza nombre o precio sin salir de
-        esta pestaña. Los cambios quedan disponibles al instante para el buscador dentro del presupuesto.
+        Administra todos tus catálogos base desde un solo lugar: importa CSV, agrega registros manuales y actualiza los
+        precios que usa el presupuesto para materiales, insumos y mano de obra.
       </p>
     </header>
 
     <main class="materials-admin">
+      <div class="inventory-tabs" role="tablist">
+        <button type="button" class="inventory-tabs__button is-active" data-inventory-tab="materials">
+          Materiales
+        </button>
+        <button type="button" class="inventory-tabs__button" data-inventory-tab="supplies">Insumos</button>
+        <button type="button" class="inventory-tabs__button" data-inventory-tab="labor">Mano de obra</button>
+      </div>
       <section class="card">
         <header class="card__header">
-          <h2>Importar lista</h2>
-          <p>Carga un archivo CSV con los materiales y precios actualizados.</p>
+          <h2>Importar <span id="inventoryImportLabel">Materiales</span></h2>
+          <p id="inventoryImportDescription">Carga un archivo CSV con los materiales y precios actualizados.</p>
         </header>
         <div class="card__body">
           <form id="materialImportForm" class="form-grid" enctype="multipart/form-data" novalidate>
@@ -82,33 +89,64 @@ A continuación pego las filas (nombre | precio):
       <section class="card">
         <header class="card__header">
           <div>
-            <h2>Catálogo paginado</h2>
-            <p>Revisa el listado completo, navega por páginas y ajusta nombre o precio.</p>
+            <h2>Catálogo de <span id="inventoryDatasetLabel">Materiales</span></h2>
+            <p id="inventoryDatasetDescription">
+              Revisa el listado completo, navega por páginas y ajusta nombre o precio.
+            </p>
           </div>
           <div class="materials-alert" id="materialsGlobalMessage" role="status" aria-live="polite"></div>
         </header>
         <div class="card__body">
+          <div class="inventory-tools">
+            <div class="inventory-search">
+              <label for="inventorySearchInput">
+                <span>Buscar en el catálogo</span>
+                <input
+                  type="search"
+                  id="inventorySearchInput"
+                  placeholder="Escribe para buscar..."
+                  autocomplete="off"
+                />
+              </label>
+              <button type="button" class="button button--ghost" id="inventorySearchClear">Limpiar</button>
+            </div>
+            <form id="inventoryManualForm" class="inventory-manual-form">
+              <h3>Agregar registros manualmente</h3>
+              <div class="inventory-manual-grid">
+                <label>
+                  <span>Nombre</span>
+                  <input type="text" id="manualName" required placeholder="Ej. ANGULOS 1 1/2&quot;" />
+                </label>
+                <label>
+                  <span>Precio / hora</span>
+                  <input type="number" id="manualPrice" step="0.01" min="0" required placeholder="0.00" />
+                </label>
+              </div>
+              <div class="inventory-manual-actions">
+                <button type="submit" class="button">Guardar registro</button>
+                <button type="reset" class="button button--ghost">Limpiar</button>
+              </div>
+            </form>
+          </div>
           <div class="table-wrapper">
             <table class="materials-table">
               <thead>
                 <tr>
-                  <th style="width: 32%">Nombre</th>
-                  <th style="width: 18%">Categoría</th>
-                  <th style="width: 14%">Unidad</th>
-                  <th style="width: 14%">Precio</th>
-                  <th style="width: 22%">Acciones</th>
+                  <th style="width: 55%">Nombre</th>
+                  <th style="width: 25%">Precio</th>
+                  <th style="width: 20%">Acciones</th>
                 </tr>
               </thead>
               <tbody id="materialsTableBody">
                 <tr>
-                  <td colspan="5" id="materialsEmptyState">Cargando catálogo…</td>
+                  <td colspan="3" id="materialsEmptyState">Cargando catálogo…</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <div class="materials-pagination">
             <div class="materials-pagination__info" id="materialsPaginationInfo">—</div>
-            <div class="materials-row-actions">
+            <div class="materials-pagination__actions">
               <button type="button" class="button button--ghost" id="materialsPrevPage">← Anterior</button>
               <button type="button" class="button button--primary" id="materialsNextPage">Siguiente →</button>
             </div>

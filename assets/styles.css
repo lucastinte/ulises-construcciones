@@ -15,7 +15,7 @@
   --radius-md: 14px;
   --radius-sm: 8px;
   --shadow-layer: 0 18px 40px rgba(15, 63, 70, 0.12);
-}
+} 
 
 *,
 *::before,
@@ -617,22 +617,6 @@ textarea:focus {
   letter-spacing: 0.02em;
 }
 
-.material-inline-suggestions__meta {
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-  display: flex;
-  justify-content: space-between;
-  gap: 0.4rem;
-  align-items: center;
-}
-
-.material-inline-suggestions__category {
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(23, 35, 39, 0.7);
-}
-
 .material-inline-suggestions__price {
   font-weight: 600;
   color: var(--color-primary-strong);
@@ -704,14 +688,6 @@ textarea:focus {
   color: var(--color-primary);
 }
 
-.material-suggestion__meta {
-  display: flex;
-  gap: 0.5rem;
-  align-items: baseline;
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
-}
-
 .material-suggestion__price {
   justify-self: end;
   font-weight: 600;
@@ -744,6 +720,36 @@ textarea:focus {
   gap: 1.5rem;
 }
 
+.inventory-tabs {
+  display: inline-flex;
+  gap: 0.4rem;
+  padding: 0.2rem;
+  border-radius: 999px;
+  background: rgba(15, 63, 70, 0.08);
+  border: 1px solid rgba(15, 63, 70, 0.12);
+  width: fit-content;
+  margin-bottom: 1rem;
+}
+
+.inventory-tabs__button {
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  padding: 0.45rem 1.2rem;
+  font-family: var(--font-heading);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  color: var(--color-primary);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.inventory-tabs__button.is-active {
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(15, 63, 70, 0.18);
+}
+
 .materials-admin__grid {
   display: grid;
   gap: 1.2rem;
@@ -762,13 +768,29 @@ textarea:focus {
   border-spacing: 0 0.75rem;
 }
 
+.materials-table thead {
+  background: linear-gradient(135deg, #0f3f46, #0a2f35);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
 .materials-table thead th {
   text-align: left;
-  padding: 0 0.4rem 0.4rem;
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
+  padding: 0.55rem 0.8rem 0.65rem;
+  font-size: 0.76rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--color-text-muted);
+  color: #f3eee4;
+  font-weight: 600;
+}
+
+.materials-table thead th:first-child {
+  border-top-left-radius: 14px;
+}
+
+.materials-table thead th:last-child {
+  border-top-right-radius: 14px;
 }
 
 .materials-table tbody tr {
@@ -800,7 +822,8 @@ textarea:focus {
   border-bottom-right-radius: 14px;
 }
 
-.materials-table input {
+.materials-table input,
+.materials-table select {
   width: 100%;
   padding: 0.6rem 0.75rem;
   border-radius: 10px;
@@ -813,6 +836,29 @@ textarea:focus {
   display: flex;
   gap: 0.4rem;
   align-items: center;
+}
+
+.materials-price-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(15, 63, 70, 0.18);
+  border-radius: 10px;
+  background: rgba(248, 247, 245, 0.8);
+  padding: 0 0.6rem;
+}
+
+.materials-price-field input {
+  border: none;
+  background: transparent;
+  padding: 0.6rem 0 0.6rem 0;
+  flex: 1;
+  font-size: 0.92rem;
+}
+
+.materials-price-prefix {
+  font-family: var(--font-heading);
+  color: var(--color-primary-strong);
 }
 
 .materials-row-actions {
@@ -841,6 +887,17 @@ textarea:focus {
   color: var(--color-text-muted);
 }
 
+.materials-pagination__actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.materials-pagination__actions.is-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .materials-alert {
   margin-top: 0.6rem;
   font-size: 0.9rem;
@@ -852,6 +909,52 @@ textarea:focus {
 
 .materials-alert--error {
   color: #a52834;
+}
+
+.inventory-tools {
+  display: grid;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.inventory-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  align-items: flex-end;
+}
+
+.inventory-search label {
+  flex: 1;
+}
+
+.inventory-manual-form {
+  border: 1px solid rgba(15, 63, 70, 0.12);
+  border-radius: 16px;
+  padding: 1rem 1.2rem;
+  background: rgba(248, 247, 245, 0.8);
+}
+
+.inventory-manual-form h3 {
+  margin: 0 0 0.8rem;
+  font-family: var(--font-heading);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  color: var(--color-primary);
+}
+
+.inventory-manual-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.9rem 1rem;
+}
+
+.inventory-manual-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 768px) {
