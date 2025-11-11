@@ -700,14 +700,12 @@ app.post('/api/materials/import', (req, res) => {
     }
     try {
       if (!req.file) {
-        res.status(400).json({ ok: false, error: 'Adjunta un archivo .xlsx con la lista de materiales.' });
+        res.status(400).json({ ok: false, error: 'Adjunta un archivo .csv con la lista de materiales.' });
         return;
       }
-      const extensionValid = /\.(xls[xm]?|csv)$/i.test(req.file.originalname || '');
+      const extensionValid = /\.csv$/i.test(req.file.originalname || '');
       if (!extensionValid) {
-        res
-          .status(400)
-          .json({ ok: false, error: 'Solo se aceptan archivos con extensión .xlsx, .xls o .csv.' });
+        res.status(400).json({ ok: false, error: 'Solo se aceptan archivos con extensión .csv.' });
         return;
       }
       const currency = sanitizeCurrency(req.body?.currency);

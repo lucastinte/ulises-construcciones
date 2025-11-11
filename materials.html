@@ -37,13 +37,13 @@
       <section class="card">
         <header class="card__header">
           <h2>Importar lista</h2>
-          <p>Carga un archivo XLSX, XLS o CSV con los materiales y precios actualizados.</p>
+          <p>Carga un archivo CSV con los materiales y precios actualizados.</p>
         </header>
         <div class="card__body">
           <form id="materialImportForm" class="form-grid" enctype="multipart/form-data" novalidate>
             <label class="form-grid__full" for="materialImportFile">
-              <span>Archivo Excel</span>
-              <input type="file" id="materialImportFile" name="file" accept=".xlsx,.xls,.csv" required />
+              <span>Archivo CSV (usa el prompt para convertir tu Excel)</span>
+              <input type="file" id="materialImportFile" name="file" accept=".csv" required />
             </label>
             <div class="material-import__actions form-grid__full">
               <button type="submit" class="button button--primary" id="materialImportSubmit">Importar</button>
@@ -57,10 +57,22 @@
           </div>
           <div class="csv-help-list-wrapper">
             <h3>¿Cómo preparo el archivo?</h3>
+            <p class="csv-help-text">
+              Para agregar o actualizar materiales, siempre subí un <strong>archivo CSV</strong>. Si tu fuente es un Excel,
+              convertí las columnas de nombre y precio con el siguiente prompt (copialo en ChatGPT u otra IA):
+            </p>
+            <pre class="csv-prompt" aria-label="Prompt sugerido para convertir a CSV"><code>Convierte esta tabla a CSV con columnas nombre,precio.
+- Cada nombre debe ir entre comillas dobles.
+- Elimina símbolos de moneda y usa punto como separador decimal (ej: $ 83.644,53 → 83644.53).
+- Descarta filas sin precio.
+- Responde solo con el CSV dentro de ```csv ... ```.
+A continuación pego las filas (nombre | precio):
+&lt;pega aquí tus datos&gt;
+</code></pre>
             <ol class="csv-help-list">
               <li>Copia las columnas de nombre y precio desde tu hoja original.</li>
-              <li>Si el archivo es CSV, deja el nombre entre comillas y usa punto como separador decimal.</li>
-              <li>Selecciona el archivo aquí y presiona “Importar”.</li>
+              <li>Pega ese contenido en el prompt, descarga el CSV que devuelve y selecciónalo en este formulario.</li>
+              <li>Presiona “Importar” para que el catálogo se actualice.</li>
               <li>Usa la tabla inferior para buscar, editar o eliminar cada material.</li>
             </ol>
           </div>
