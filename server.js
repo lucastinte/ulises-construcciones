@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import crypto from 'crypto';
+import XLSX from 'xlsx';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,6 +14,17 @@ const PORT = process.env.PORT || 3000;
 const MAX_UPLOAD_MB = Number.parseInt(process.env.MAX_UPLOAD_MB || '15', 10);
 const UPLOAD_LIMIT_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : __dirname;
+const MATERIAL_DEFAULT_CURRENCY = process.env.MATERIAL_CURRENCY
+  ? String(process.env.MATERIAL_CURRENCY).trim().toUpperCase() || 'ARS'
+  : 'ARS';
+const MATERIAL_IMPORT_ROW_LIMIT = Math.max(
+  100,
+  Math.min(Number.parseInt(process.env.MATERIAL_IMPORT_ROW_LIMIT || '2000', 10), 5000)
+);
+const MATERIAL_QUERY_LIMIT = Math.max(
+  5,
+  Math.min(Number.parseInt(process.env.MATERIAL_QUERY_LIMIT || '30', 10), 100)
+);
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -56,6 +68,23 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
   );
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS materials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL UNIQUE,
+    category TEXT,
+    unit TEXT,
+    price_cents INTEGER,
+    price_raw TEXT,
+    currency TEXT,
+    last_imported_at TEXT,
+    extra_json TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_materials_normalized ON materials (normalized_name);
+  CREATE INDEX IF NOT EXISTS idx_materials_last_imported ON materials (last_imported_at);
 `);
 
 const ensureCatalogColumn = (columnName) => {
@@ -137,6 +166,77 @@ const deleteCatalogEntryStmt = db.prepare(`
 `);
 
 const countCatalogEntriesStmt = db.prepare(`SELECT COUNT(*) AS total FROM catalog_entries`);
+const countMaterialsStmt = db.prepare(`SELECT COUNT(*) AS total FROM materials`);
+
+const findMaterialByNormalizedNameStmt = db.prepare(`
+  SELECT id FROM materials WHERE normalized_name = @normalizedName
+`);
+
+const insertMaterialStmt = db.prepare(`
+  INSERT INTO materials (
+    name, normalized_name, category, unit, price_cents, price_raw, currency, last_imported_at, extra_json
+  ) VALUES (
+    @name, @normalizedName, @category, @unit, @priceCents, @priceRaw, @currency, @lastImportedAt, @extraJson
+  )
+`);
+
+const updateMaterialStmt = db.prepare(`
+  UPDATE materials SET
+    name = @name,
+    category = COALESCE(@category, category),
+    unit = COALESCE(@unit, unit),
+    price_cents = @priceCents,
+    price_raw = @priceRaw,
+    currency = @currency,
+    last_imported_at = @lastImportedAt,
+    extra_json = @extraJson
+  WHERE id = @id
+`);
+
+const listRecentMaterialsStmt = db.prepare(`
+  SELECT id, name, category, unit, price_cents, price_raw, currency, last_imported_at, extra_json
+  FROM materials
+  ORDER BY
+    CASE WHEN last_imported_at IS NULL THEN 1 ELSE 0 END,
+    last_imported_at DESC,
+    name ASC
+  LIMIT @limit
+`);
+
+const searchMaterialsStmt = db.prepare(`
+  SELECT id, name, category, unit, price_cents, price_raw, currency, last_imported_at, extra_json
+  FROM materials
+  WHERE normalized_name LIKE @pattern
+  ORDER BY name ASC
+  LIMIT @limit
+`);
+
+const listMaterialsPaginatedStmt = db.prepare(`
+  SELECT id, name, category, unit, price_cents, price_raw, currency, last_imported_at, extra_json
+  FROM materials
+  ORDER BY name ASC
+  LIMIT @limit OFFSET @offset
+`);
+
+const getMaterialByIdStmt = db.prepare(`
+  SELECT id, name, category, unit, price_cents, price_raw, currency, last_imported_at, extra_json
+  FROM materials
+  WHERE id = @id
+`);
+
+const updateMaterialManualStmt = db.prepare(`
+  UPDATE materials SET
+    name = @name,
+    normalized_name = @normalizedName,
+    category = @category,
+    unit = @unit,
+    price_cents = @priceCents,
+    price_raw = @priceRaw,
+    currency = @currency,
+    last_imported_at = @lastImportedAt,
+    extra_json = @extraJson
+  WHERE id = @id
+`);
 
 const sanitizeName = (value) =>
   String(value || '')
@@ -151,6 +251,23 @@ const sanitizeUrlList = (value, maxItems) => {
     .map((item) => sanitizeText(item))
     .filter(Boolean)
     .slice(0, maxItems);
+};
+
+const stripDiacritics = (value) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+const normalizeMaterialName = (value) => {
+  const base = sanitizeName(value);
+  if (!base) return '';
+  return stripDiacritics(base).toLowerCase();
+};
+
+const sanitizeCurrency = (value) => {
+  const upper = sanitizeText(value).toUpperCase();
+  if (!upper) return MATERIAL_DEFAULT_CURRENCY;
+  return upper.length > 6 ? upper.slice(0, 6) : upper;
 };
 
 const parseJsonField = (value) => {
@@ -226,6 +343,236 @@ const toCatalogEntry = (row, req) => {
   };
 };
 
+const isMeaningfulCell = (value) => {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'string') return value.trim().length > 0;
+  return false;
+};
+
+const normalizeRowValues = (row = []) =>
+  row.map((cell) => {
+    if (typeof cell === 'string') return cell.trim();
+    if (typeof cell === 'number' && Number.isFinite(cell)) return cell;
+    return cell ?? '';
+  });
+
+const parsePriceValue = (value) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return {
+      cents: Math.round(value * 100),
+      raw: String(value),
+    };
+  }
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const numericPart = trimmed.replace(/[^\d,.-]/g, '').replace(/\s+/g, '');
+  if (!numericPart) return null;
+  const hasComma = numericPart.includes(',');
+  const hasDot = numericPart.includes('.');
+  let normalized = numericPart;
+  if (hasComma && hasDot) {
+    normalized = normalized.replace(/\./g, '').replace(',', '.');
+  } else if (hasComma && !hasDot) {
+    normalized = normalized.replace(',', '.');
+  }
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed)) return null;
+  return {
+    cents: Math.round(parsed * 100),
+    raw: trimmed,
+  };
+};
+
+const findPriceCandidate = (row = []) => {
+  for (let index = row.length - 1; index >= 0; index -= 1) {
+    const cell = row[index];
+    if (typeof cell === 'number' && Number.isFinite(cell)) return cell;
+    if (typeof cell === 'string' && /\d/.test(cell)) return cell;
+  }
+  return null;
+};
+
+const buildMaterialFromRow = (row = []) => {
+  if (!Array.isArray(row) || row.length === 0) return null;
+  const normalizedRow = normalizeRowValues(row);
+  const name = sanitizeText(normalizedRow[0]);
+  if (!name) return null;
+  const normalizedName = normalizeMaterialName(name);
+  if (!normalizedName) return null;
+  const priceCandidate = findPriceCandidate(normalizedRow);
+  if (priceCandidate === null || priceCandidate === undefined) return null;
+  const priceInfo = parsePriceValue(priceCandidate);
+  if (!priceInfo) return null;
+  const category = sanitizeText(normalizedRow[1]) || null;
+  const unit = sanitizeText(normalizedRow[2]) || null;
+  const extra = { rawRow: normalizedRow };
+  return {
+    name,
+    normalizedName,
+    category,
+    unit,
+    priceCents: priceInfo.cents,
+    priceRaw: priceInfo.raw,
+    extraJson: JSON.stringify(extra),
+  };
+};
+
+const parseMaterialsFromBuffer = (buffer) => {
+  if (!buffer || buffer.length === 0) {
+    const error = new Error('No se detectaron datos en el archivo.');
+    error.code = 'EMPTY_IMPORT';
+    throw error;
+  }
+  let workbook;
+  try {
+    workbook = XLSX.read(buffer, { type: 'buffer' });
+  } catch (error) {
+    const parseError = new Error('El archivo no parece ser un Excel válido.');
+    parseError.code = 'INVALID_EXCEL';
+    throw parseError;
+  }
+  const sheetName = workbook.SheetNames?.[0];
+  if (!sheetName) {
+    const error = new Error('La hoja está vacía.');
+    error.code = 'EMPTY_IMPORT';
+    throw error;
+  }
+  const sheet = workbook.Sheets[sheetName];
+  const rawRows = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    blankrows: false,
+    defval: '',
+  });
+  const rows = rawRows
+    .map((row) => (Array.isArray(row) ? row : [row]))
+    .filter((row) => row.some((cell) => isMeaningfulCell(cell)));
+  if (rows.length === 0) {
+    const error = new Error('No se encontraron filas con datos.');
+    error.code = 'EMPTY_IMPORT';
+    throw error;
+  }
+
+  const uniqueMaterials = new Map();
+  let skipped = 0;
+  let duplicates = 0;
+
+  rows.forEach((row) => {
+    const material = buildMaterialFromRow(row);
+    if (!material) {
+      skipped += 1;
+      return;
+    }
+    if (uniqueMaterials.has(material.normalizedName)) {
+      duplicates += 1;
+    }
+    if (!uniqueMaterials.has(material.normalizedName) && uniqueMaterials.size >= MATERIAL_IMPORT_ROW_LIMIT) {
+      skipped += 1;
+      return;
+    }
+    uniqueMaterials.set(material.normalizedName, material);
+  });
+
+  return {
+    rowsRead: rows.length,
+    skipped,
+    duplicates,
+    items: Array.from(uniqueMaterials.values()),
+  };
+};
+
+const toMaterialResponse = (row) => {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    unit: row.unit,
+    price: Number.isFinite(row.price_cents) ? row.price_cents / 100 : null,
+    priceCents: row.price_cents ?? null,
+    priceRaw: row.price_raw,
+    currency: row.currency || MATERIAL_DEFAULT_CURRENCY,
+    lastImportedAt: row.last_imported_at,
+    extra: parseJsonField(row.extra_json) || {},
+  };
+};
+
+const saveMaterialsTransaction = db.transaction((items) => {
+  let inserted = 0;
+  let updated = 0;
+  items.forEach((item) => {
+    const existing = findMaterialByNormalizedNameStmt.get({ normalizedName: item.normalizedName });
+    if (existing) {
+      updateMaterialStmt.run({ ...item, id: existing.id });
+      updated += 1;
+    } else {
+      insertMaterialStmt.run(item);
+      inserted += 1;
+    }
+  });
+  return { inserted, updated };
+});
+
+const buildManualMaterialUpdate = (row, body = {}) => {
+  if (!row) {
+    const error = new Error('Material no encontrado.');
+    error.code = 'MATERIAL_NOT_FOUND';
+    throw error;
+  }
+  const name = sanitizeText(body.name ?? row.name);
+  const normalizedName = normalizeMaterialName(name);
+  if (!normalizedName) {
+    const error = new Error('El nombre es obligatorio.');
+    error.code = 'INVALID_NAME';
+    throw error;
+  }
+  const category =
+    Object.prototype.hasOwnProperty.call(body, 'category') && body.category !== undefined
+      ? sanitizeText(body.category) || null
+      : row.category;
+  const unit =
+    Object.prototype.hasOwnProperty.call(body, 'unit') && body.unit !== undefined
+      ? sanitizeText(body.unit) || null
+      : row.unit;
+
+  let priceCents = row.price_cents ?? null;
+  let priceRaw = row.price_raw ?? null;
+  if (
+    Object.prototype.hasOwnProperty.call(body, 'price') ||
+    Object.prototype.hasOwnProperty.call(body, 'priceRaw')
+  ) {
+    const priceSource = body.price ?? body.priceRaw;
+    const parsedPrice = parsePriceValue(priceSource);
+    if (!parsedPrice) {
+      const error = new Error('El precio ingresado no es válido.');
+      error.code = 'INVALID_PRICE';
+      throw error;
+    }
+    priceCents = parsedPrice.cents;
+    priceRaw = parsedPrice.raw;
+  }
+
+  const currency = sanitizeCurrency(body.currency ?? row.currency ?? MATERIAL_DEFAULT_CURRENCY);
+  const lastImportedAt = new Date().toISOString();
+  const existingExtra = parseJsonField(row.extra_json) || {};
+  const mergedExtra =
+    body.extra && typeof body.extra === 'object' ? { ...existingExtra, ...body.extra } : existingExtra;
+
+  return {
+    id: row.id,
+    name,
+    normalizedName,
+    category,
+    unit,
+    priceCents,
+    priceRaw,
+    currency,
+    lastImportedAt,
+    extraJson: JSON.stringify(mergedExtra),
+  };
+};
+
 const generateCatalogId = () => `cat_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
 const buildCatalogParams = (body, id) => {
@@ -280,6 +627,13 @@ const upload = multer({
   },
 });
 
+const excelUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: UPLOAD_LIMIT_BYTES,
+  },
+});
+
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(__dirname));
@@ -326,6 +680,152 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   } catch (error) {
     console.error('Error al guardar archivo:', error);
     res.status(500).json({ ok: false, error: 'No se pudo guardar el archivo en el servidor.' });
+  }
+});
+
+const handleMaterialImportUpload = excelUpload.single('file');
+
+app.post('/api/materials/import', (req, res) => {
+  handleMaterialImportUpload(req, res, (uploadError) => {
+    if (uploadError) {
+      if (uploadError.code === 'LIMIT_FILE_SIZE') {
+        res.status(413).json({
+          ok: false,
+          error: `El archivo supera el máximo permitido (${MAX_UPLOAD_MB} MB).`,
+        });
+        return;
+      }
+      res.status(400).json({ ok: false, error: 'No se pudo leer el archivo enviado.' });
+      return;
+    }
+    try {
+      if (!req.file) {
+        res.status(400).json({ ok: false, error: 'Adjunta un archivo .xlsx con la lista de materiales.' });
+        return;
+      }
+      const extensionValid = /\.(xls[xm]?|csv)$/i.test(req.file.originalname || '');
+      if (!extensionValid) {
+        res
+          .status(400)
+          .json({ ok: false, error: 'Solo se aceptan archivos con extensión .xlsx, .xls o .csv.' });
+        return;
+      }
+      const currency = sanitizeCurrency(req.body?.currency);
+      const parsed = parseMaterialsFromBuffer(req.file.buffer);
+      if (!parsed.items || parsed.items.length === 0) {
+        res.status(400).json({ ok: false, error: 'No se encontraron materiales válidos en el archivo.' });
+        return;
+      }
+      const timestamp = new Date().toISOString();
+      const payload = parsed.items.map((item) => ({
+        ...item,
+        currency,
+        lastImportedAt: timestamp,
+      }));
+      const { inserted, updated } = saveMaterialsTransaction(payload);
+      res.json({
+        ok: true,
+        summary: {
+          rowsRead: parsed.rowsRead,
+          imported: payload.length,
+          inserted,
+          updated,
+          skipped: parsed.skipped,
+          duplicates: parsed.duplicates,
+          currency,
+          lastImportedAt: timestamp,
+        },
+      });
+    } catch (error) {
+      if (error.code === 'EMPTY_IMPORT' || error.code === 'INVALID_EXCEL') {
+        res.status(400).json({ ok: false, error: error.message });
+        return;
+      }
+      console.error('Error al importar materiales:', error);
+      res.status(500).json({ ok: false, error: 'No se pudo importar la lista de materiales.' });
+    }
+  });
+});
+
+app.get('/api/materials', (req, res) => {
+  try {
+    const limit = Math.max(
+      1,
+      Math.min(Number.parseInt(req.query.limit || String(MATERIAL_QUERY_LIMIT), 10), MATERIAL_QUERY_LIMIT)
+    );
+    const query = sanitizeText(req.query.q || '');
+    let rows = [];
+    if (query) {
+      const normalized = normalizeMaterialName(query);
+      if (normalized) {
+        const pattern = `%${normalized.replace(/\s+/g, '%')}%`;
+        rows = searchMaterialsStmt.all({ pattern, limit });
+      } else {
+        rows = listRecentMaterialsStmt.all({ limit });
+      }
+    } else {
+      rows = listRecentMaterialsStmt.all({ limit });
+    }
+    res.json({ ok: true, items: rows.map(toMaterialResponse) });
+  } catch (error) {
+    console.error('Error al consultar materiales:', error);
+    res.status(500).json({ ok: false, error: 'No se pudieron obtener los materiales.' });
+  }
+});
+
+app.get('/api/materials/list', (req, res) => {
+  try {
+    const limit = Math.max(5, Math.min(Number.parseInt(req.query.limit || '20', 10), 100));
+    const pageRaw = Number.parseInt(req.query.page || '1', 10);
+    const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+    const offset = (page - 1) * limit;
+    const rows = listMaterialsPaginatedStmt.all({ limit, offset });
+    const totalRow = countMaterialsStmt.get();
+    const totalItems = totalRow?.total ?? 0;
+    const totalPages = totalItems > 0 ? Math.ceil(totalItems / limit) : 1;
+    res.json({
+      ok: true,
+      items: rows.map(toMaterialResponse),
+      pagination: {
+        page,
+        perPage: limit,
+        totalItems,
+        totalPages,
+      },
+    });
+  } catch (error) {
+    console.error('Error al paginar materiales:', error);
+    res.status(500).json({ ok: false, error: 'No se pudo obtener el listado paginado.' });
+  }
+});
+
+app.patch('/api/materials/:id', (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ ok: false, error: 'ID inválido.' });
+      return;
+    }
+    const current = getMaterialByIdStmt.get({ id });
+    if (!current) {
+      res.status(404).json({ ok: false, error: 'Material no encontrado.' });
+      return;
+    }
+    const params = buildManualMaterialUpdate(current, req.body || {});
+    updateMaterialManualStmt.run(params);
+    const updated = getMaterialByIdStmt.get({ id });
+    res.json({ ok: true, item: toMaterialResponse(updated) });
+  } catch (error) {
+    if (error.code === 'INVALID_NAME' || error.code === 'INVALID_PRICE') {
+      res.status(400).json({ ok: false, error: error.message });
+      return;
+    }
+    if (error.code && error.code.startsWith('SQLITE_CONSTRAINT')) {
+      res.status(409).json({ ok: false, error: 'Ya existe otro material con ese nombre.' });
+      return;
+    }
+    console.error('Error al actualizar material:', error);
+    res.status(500).json({ ok: false, error: 'No se pudo guardar el material.' });
   }
 });
 

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gestor de Materiales - Ulises Construcciones</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Lato:wght@400;500;600;700&family=Montserrat:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="assets/styles.css" />
+    <script src="assets/materials.js" type="module" defer></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="app-header__top">
+        <div class="branding">
+          <div class="logo">UC</div>
+          <div class="brand-text">
+            <h1>Gestor de materiales</h1>
+            <p>Catálogo y precios</p>
+          </div>
+        </div>
+        <div class="app-header__controls">
+          <a class="header-cta__button header-cta__button--accent" href="index.html">Volver al presupuesto</a>
+        </div>
+      </div>
+      <p>
+        Sube la lista azul en Excel, revisa todos los registros con paginación y actualiza nombre o precio sin salir de
+        esta pestaña. Los cambios quedan disponibles al instante para el buscador dentro del presupuesto.
+      </p>
+    </header>
+
+    <main class="materials-admin">
+      <section class="card">
+        <header class="card__header">
+          <h2>Importar lista</h2>
+          <p>Carga un archivo XLSX, XLS o CSV con los materiales y precios actualizados.</p>
+        </header>
+        <div class="card__body">
+          <form id="materialImportForm" class="form-grid" enctype="multipart/form-data" novalidate>
+            <label class="form-grid__full" for="materialImportFile">
+              <span>Archivo Excel</span>
+              <input type="file" id="materialImportFile" name="file" accept=".xlsx,.xls,.csv" required />
+            </label>
+            <div class="material-import__actions form-grid__full">
+              <button type="submit" class="button button--primary" id="materialImportSubmit">Importar</button>
+              <button type="button" class="button button--ghost" id="materialImportReset">Limpiar selección</button>
+            </div>
+            <p id="materialImportStatus" class="material-import__status" role="status"></p>
+          </form>
+          <div id="materialImportSummaryBox" class="csv-summary" hidden>
+            <h3>Resumen de la última importación</h3>
+            <ul id="materialImportSummaryList"></ul>
+          </div>
+          <div class="csv-help-list-wrapper">
+            <h3>¿Cómo preparo el archivo?</h3>
+            <ol class="csv-help-list">
+              <li>Copia las columnas de nombre y precio desde tu hoja original.</li>
+              <li>Si el archivo es CSV, deja el nombre entre comillas y usa punto como separador decimal.</li>
+              <li>Selecciona el archivo aquí y presiona “Importar”.</li>
+              <li>Usa la tabla inferior para buscar, editar o eliminar cada material.</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <header class="card__header">
+          <div>
+            <h2>Catálogo paginado</h2>
+            <p>Revisa el listado completo, navega por páginas y ajusta nombre o precio.</p>
+          </div>
+          <div class="materials-alert" id="materialsGlobalMessage" role="status" aria-live="polite"></div>
+        </header>
+        <div class="card__body">
+          <div class="table-wrapper">
+            <table class="materials-table">
+              <thead>
+                <tr>
+                  <th style="width: 32%">Nombre</th>
+                  <th style="width: 18%">Categoría</th>
+                  <th style="width: 14%">Unidad</th>
+                  <th style="width: 14%">Precio</th>
+                  <th style="width: 22%">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="materialsTableBody">
+                <tr>
+                  <td colspan="5" id="materialsEmptyState">Cargando catálogo…</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="materials-pagination">
+            <div class="materials-pagination__info" id="materialsPaginationInfo">—</div>
+            <div class="materials-row-actions">
+              <button type="button" class="button button--ghost" id="materialsPrevPage">← Anterior</button>
+              <button type="button" class="button button--primary" id="materialsNextPage">Siguiente →</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

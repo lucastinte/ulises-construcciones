@@ -115,7 +115,12 @@ const driveUploadConfig = {
   endpoint: '/api/upload',
 };
 
+const materialSearchInput = document.getElementById('materialSearchInput');
+const materialSuggestionsEl = document.getElementById('materialSuggestions');
 const MAX_MEDIA_ITEMS = 5;
+const MATERIAL_SUGGESTION_LIMIT = 12;
+const MATERIAL_INLINE_LIMIT = 8;
+const MATERIAL_SEARCH_DELAY = 280;
 
 const summaryValues = {
   materials: 0,
@@ -137,6 +142,16 @@ let catalogLoading = false;
 let catalogLoadError = null;
 let catalogImages = [];
 let catalogDocuments = [];
+let materialSuggestionsAbortController = null;
+let materialSuggestionItems = [];
+
+const getMaterialUnitCost = (material) => {
+  if (!material) return 0;
+  if (Number.isFinite(material.price)) return material.price;
+  if (Number.isFinite(material.priceCents)) return material.priceCents / 100;
+  if (material.priceRaw) return parsePriceFromRaw(material.priceRaw);
+  return 0;
+};
 
 function setCatalogLoadingState(isLoading, errorMessage = null) {
   catalogLoading = isLoading;
@@ -446,6 +461,27 @@ function parseNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function parsePriceFromRaw(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value !== 'string') {
+    return parseNumber(value);
+  }
+  const cleaned = value.replace(/[^\d,.-]/g, '').replace(/\s+/g, '');
+  if (!cleaned) return 0;
+  const hasComma = cleaned.includes(',');
+  const hasDot = cleaned.includes('.');
+  let normalized = cleaned;
+  if (hasComma && hasDot) {
+    normalized = normalized.replace(/\./g, '').replace(',', '.');
+  } else if (hasComma && !hasDot) {
+    normalized = normalized.replace(',', '.');
+  }
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function formatDate(value) {
   const date = value ? new Date(value) : null;
   if (date && !Number.isNaN(date.getTime())) {
@@ -483,6 +519,33 @@ function createParagraphMarkup(text, fallback) {
     return `<p>${escapeHtml(fallback)}</p>`;
   }
   return lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('');
+}
+
+function debounce(fn, delay = 250) {
+  let timeout;
+  return (...args) => {
+    window.clearTimeout(timeout);
+    timeout = window.setTimeout(() => {
+      fn(...args);
+    }, delay);
+  };
+}
+
+async function fetchMaterialSuggestionsList(term = '', limit = MATERIAL_SUGGESTION_LIMIT, signal) {
+  const endpoint = new URL('/api/materials', window.location.origin);
+  if (term) {
+    endpoint.searchParams.set('q', term);
+  }
+  endpoint.searchParams.set('limit', String(limit));
+  const response = await fetch(endpoint.toString(), { signal });
+  if (!response.ok) {
+    throw new Error('No se pudo contactar al servidor.');
+  }
+  const payload = await response.json();
+  if (!payload.ok) {
+    throw new Error(payload.error || 'No se pudieron obtener los materiales.');
+  }
+  return payload.items || [];
 }
 
 function scheduleSave() {
@@ -634,6 +697,10 @@ function createBudgetRow(sectionKey, data = {}) {
     scheduleSave();
   });
 
+  if (sectionKey === 'materials') {
+    attachMaterialInlineAutocomplete(row);
+  }
+
   return row;
 }
 
@@ -642,6 +709,246 @@ function addBudgetRow(sectionKey, data) {
   const row = createBudgetRow(sectionKey, data);
   config.body.appendChild(row);
   updateRowTotal(row, sectionKey);
+}
+
+function attachMaterialInlineAutocomplete(row) {
+  const conceptInput = row.querySelector('[data-field="concept"]');
+  const unitCostInput = row.querySelector('[data-field="unitCost"]');
+  const suggestionList = row.querySelector('[data-role="inline-material-suggestions"]');
+  if (!conceptInput || !unitCostInput || !suggestionList) return;
+
+  let currentItems = [];
+  let inlineAbortController = null;
+
+  const hideSuggestions = () => {
+    suggestionList.hidden = true;
+    suggestionList.innerHTML = '';
+  };
+
+  const renderSuggestions = (items, options = {}) => {
+    const { loading = false, error = null } = options;
+    if (loading) {
+      suggestionList.hidden = false;
+      suggestionList.innerHTML = '<li class="material-inline-suggestions__empty">Buscando…</li>';
+      return;
+    }
+    if (error) {
+      suggestionList.hidden = false;
+      suggestionList.innerHTML = `<li class="material-inline-suggestions__empty">${escapeHtml(error)}</li>`;
+      return;
+    }
+    if (!items || items.length === 0) {
+      suggestionList.hidden = false;
+      suggestionList.innerHTML = '<li class="material-inline-suggestions__empty">Sin coincidencias.</li>';
+      return;
+    }
+    suggestionList.hidden = false;
+    suggestionList.innerHTML = items
+      .map((item, index) => {
+        const priceLabel =
+          Number.isFinite(item.price) && item.price !== null ? formatCurrency(item.price) : item.priceRaw || '—';
+        const categoryLabel = item.category ? escapeHtml(item.category) : 'Sin categoría';
+      return `<li>
+        <button type="button" data-inline-material-index="${index}">
+          <span class="material-inline-suggestions__name">${escapeHtml(item.name)}</span>
+          <span class="material-inline-suggestions__meta">
+            <span class="material-inline-suggestions__category">${categoryLabel}</span>
+            <span class="material-inline-suggestions__price">${escapeHtml(priceLabel)}</span>
+          </span>
+        </button>
+      </li>`;
+      })
+      .join('');
+  };
+
+  const searchMaterials = async (term) => {
+    if (inlineAbortController) {
+      inlineAbortController.abort();
+    }
+    inlineAbortController = new AbortController();
+    renderSuggestions([], { loading: true });
+    try {
+      currentItems = await fetchMaterialSuggestionsList(term, MATERIAL_INLINE_LIMIT, inlineAbortController.signal);
+      renderSuggestions(currentItems);
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      console.error('Error al buscar materiales (fila):', error);
+      renderSuggestions([], { error: 'Error al buscar.' });
+    }
+  };
+
+  const debouncedSearch = debounce((term) => {
+    if (!term) {
+      hideSuggestions();
+      return;
+    }
+    searchMaterials(term);
+  }, MATERIAL_SEARCH_DELAY);
+
+  conceptInput.addEventListener('input', (event) => {
+    const term = event.target.value.trim();
+    debouncedSearch(term);
+  });
+
+  conceptInput.addEventListener('focus', () => {
+    const term = conceptInput.value.trim();
+    if (term) {
+      debouncedSearch(term);
+    } else if (currentItems.length > 0) {
+      renderSuggestions(currentItems);
+    }
+  });
+
+  conceptInput.addEventListener('blur', () => {
+    window.setTimeout(() => {
+      hideSuggestions();
+    }, 150);
+  });
+
+  suggestionList.addEventListener('mousedown', (event) => {
+    event.preventDefault();
+  });
+
+  suggestionList.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-inline-material-index]');
+    if (!button) return;
+    const index = Number.parseInt(button.dataset.inlineMaterialIndex, 10);
+    const material = currentItems[index];
+    if (!material) return;
+    conceptInput.value = material.name || '';
+    const unitCost = getMaterialUnitCost(material);
+    unitCostInput.value = Number.isFinite(unitCost) ? unitCost : 0;
+    hideSuggestions();
+    updateRowTotal(row, 'materials');
+    scheduleSave();
+  });
+}
+
+function hideMaterialSuggestions() {
+  if (!materialSuggestionsEl) return;
+  materialSuggestionsEl.hidden = true;
+  materialSuggestionsEl.innerHTML = '';
+}
+
+function renderMaterialSuggestions(items, options = {}) {
+  if (!materialSuggestionsEl) return;
+  const { loading = false, error = null, hideWhenEmpty = false } = options;
+  if (loading) {
+    materialSuggestionsEl.hidden = false;
+    materialSuggestionsEl.innerHTML = '<li class="material-suggestions__empty">Buscando materiales…</li>';
+    return;
+  }
+  if (error) {
+    materialSuggestionsEl.hidden = false;
+    materialSuggestionsEl.innerHTML = `<li class="material-suggestions__empty">${escapeHtml(error)}</li>`;
+    return;
+  }
+  if (!items || items.length === 0) {
+    if (hideWhenEmpty) {
+      hideMaterialSuggestions();
+      return;
+    }
+    materialSuggestionsEl.hidden = false;
+    materialSuggestionsEl.innerHTML =
+      '<li class="material-suggestions__empty">Sin coincidencias. Probá con otro término.</li>';
+    return;
+  }
+  materialSuggestionsEl.hidden = false;
+  materialSuggestionsEl.innerHTML = items
+    .map((item, index) => {
+      const priceLabel =
+        Number.isFinite(item.price) && item.price !== null ? formatCurrency(item.price) : item.priceRaw || '—';
+      const categoryLabel = item.category ? escapeHtml(item.category) : 'Sin categoría';
+      const unitLabel = item.unit ? `• ${escapeHtml(item.unit)}` : '';
+      return `<li>
+        <button type="button" data-material-index="${index}">
+          <span class="material-suggestion__name">${escapeHtml(item.name)}</span>
+          <span class="material-suggestion__price">${escapeHtml(priceLabel)}</span>
+          <span class="material-suggestion__meta">
+            <span>${categoryLabel}</span>
+            ${unitLabel ? `<span>${unitLabel}</span>` : ''}
+          </span>
+        </button>
+      </li>`;
+    })
+    .join('');
+}
+
+async function requestMaterialSuggestions(term = '', options = {}) {
+  if (!materialSuggestionsEl) return;
+  const { hideWhenEmpty = false } = options;
+  if (materialSuggestionsAbortController) {
+    materialSuggestionsAbortController.abort();
+  }
+  materialSuggestionsAbortController = new AbortController();
+  renderMaterialSuggestions([], { loading: true });
+  try {
+    materialSuggestionItems = await fetchMaterialSuggestionsList(
+      term,
+      MATERIAL_SUGGESTION_LIMIT,
+      materialSuggestionsAbortController.signal
+    );
+    renderMaterialSuggestions(materialSuggestionItems, { hideWhenEmpty });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      return;
+    }
+    console.error('Error al buscar materiales:', error);
+    renderMaterialSuggestions([], { error: 'No se pudo cargar el catálogo.' });
+  }
+}
+
+function addMaterialToBudget(material) {
+  if (!material) return;
+  const unitCost = getMaterialUnitCost(material);
+  addBudgetRow('materials', {
+    concept: material.name,
+    quantity: 1,
+    unitCost: Number.isFinite(unitCost) ? unitCost : 0,
+  });
+}
+
+function setupMaterialSearch() {
+  if (!materialSearchInput || !materialSuggestionsEl) return;
+  const debouncedSearch = debounce((term) => {
+    requestMaterialSuggestions(term, { hideWhenEmpty: term.trim().length === 0 });
+  }, MATERIAL_SEARCH_DELAY);
+
+  materialSearchInput.addEventListener('input', (event) => {
+    const term = event.target.value.trim();
+    if (!term) {
+      requestMaterialSuggestions('', { hideWhenEmpty: true });
+      return;
+    }
+    debouncedSearch(term);
+  });
+
+  materialSearchInput.addEventListener('focus', () => {
+    if (materialSuggestionItems.length === 0) {
+      requestMaterialSuggestions(materialSearchInput.value.trim(), { hideWhenEmpty: true });
+    } else {
+      renderMaterialSuggestions(materialSuggestionItems);
+    }
+  });
+
+  materialSearchInput.addEventListener('blur', () => {
+    window.setTimeout(() => {
+      hideMaterialSuggestions();
+    }, 150);
+  });
+
+  materialSuggestionsEl.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-material-index]');
+    if (!button) return;
+    const index = Number.parseInt(button.dataset.materialIndex, 10);
+    const material = materialSuggestionItems[index];
+    if (!material) return;
+    addMaterialToBudget(material);
+    materialSearchInput.value = '';
+    hideMaterialSuggestions();
+  });
+
+  requestMaterialSuggestions('', { hideWhenEmpty: true });
 }
 
 function collectBudgetData() {
@@ -1773,6 +2080,7 @@ function initialize() {
     storageAvailable = false;
   }
 
+  setupMaterialSearch();
   document.querySelectorAll('[data-action="add-row"]').forEach((button) => {
     const sectionKey = button.dataset.section;
     button.addEventListener('click', () => addBudgetRow(sectionKey));

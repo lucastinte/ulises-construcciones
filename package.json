@@ -23,6 +23,7 @@
   "dependencies": {
     "better-sqlite3": "^9.4.3",
     "express": "^4.19.2",
-    "multer": "^2.0.2"
+    "multer": "^2.0.2",
+    "xlsx": "^0.18.5"
   }
 }

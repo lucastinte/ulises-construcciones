@@ -25,6 +25,7 @@
         <div class="app-header__controls">
           <div class="header-cta header-cta--desktop">
             <a class="header-cta__button" href="#resumen">Presupuestos</a>
+            <a class="header-cta__button" href="materials.html" target="_blank" rel="noopener">Gestor materiales</a>
             <a class="header-cta__button header-cta__button--accent" href="#catalogo">Catálogos</a>
           </div>
           <button class="nav-toggle" type="button" aria-controls="appNavigation" aria-expanded="false">
@@ -59,6 +60,7 @@
           </ul>
           <div class="header-cta header-cta--mobile">
             <a class="header-cta__button" href="#resumen">Presupuestos</a>
+            <a class="header-cta__button" href="materials.html" target="_blank" rel="noopener">Gestor materiales</a>
             <a class="header-cta__button header-cta__button--accent" href="#catalogo">Catálogos</a>
           </div>
           <button class="app-nav__close" type="button" aria-label="Cerrar menú">
@@ -461,7 +463,10 @@
     <template id="material-row-template">
       <tr data-section="materials">
         <td data-label="Material">
-          <input type="text" data-field="concept" placeholder="Descripción del material" />
+          <div class="material-concept-field">
+            <input type="text" data-field="concept" placeholder="Descripción del material" autocomplete="off" />
+            <ul class="material-inline-suggestions" data-role="inline-material-suggestions" hidden></ul>
+          </div>
         </td>
         <td class="col-num" data-label="Cantidad">
           <input type="number" data-field="quantity" min="0" step="0.01" value="0" />
