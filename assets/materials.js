@@ -9,16 +9,19 @@ const INVENTORY_TYPES = {
     label: 'Materiales',
     searchPlaceholder: 'Ej. ANGULOS 1 1/2" X 1/4"',
     importDescription: 'Carga un CSV con los materiales disponibles y sus precios actualizados.',
+    priceLabel: 'Precio',
   },
   supplies: {
     label: 'Insumos',
     searchPlaceholder: 'Ej. Disco de corte 4"',
     importDescription: 'Carga un CSV con los insumos o consumibles que utilizas en obra.',
+    priceLabel: 'Precio',
   },
   labor: {
     label: 'Mano de obra',
     searchPlaceholder: 'Ej. Soldador especializado',
     importDescription: 'Carga un CSV con perfiles de mano de obra y sus tarifas.',
+    priceLabel: 'Precio / hora',
   },
 };
 
@@ -37,6 +40,8 @@ const datasetLabelEl = document.getElementById('inventoryDatasetLabel');
 const datasetDescriptionEl = document.getElementById('inventoryDatasetDescription');
 const inventorySearchInput = document.getElementById('inventorySearchInput');
 const inventorySearchClear = document.getElementById('inventorySearchClear');
+const manualPriceLabelEl = document.getElementById('manualPriceLabel');
+const priceHeaderLabelEl = document.getElementById('priceHeaderLabel');
 
 const manualForm = document.getElementById('inventoryManualForm');
 const manualFields = {
@@ -221,6 +226,12 @@ const updateInventoryCopy = () => {
   if (manualTitleEl) {
     manualTitleEl.textContent = `Agregar ${config.label.toLowerCase()} manualmente`;
   }
+  if (manualPriceLabelEl) {
+    manualPriceLabelEl.textContent = config.priceLabel || 'Precio';
+  }
+  if (priceHeaderLabelEl) {
+    priceHeaderLabelEl.textContent = config.priceLabel || 'Precio';
+  }
 };
 
 const buildRowMarkup = (item, dataset) => {
@@ -232,8 +243,10 @@ const buildRowMarkup = (item, dataset) => {
         <div class="materials-price-field">
           <span class="materials-price-prefix">$</span>
           <input
-            type="text"
+            type="number"
             inputmode="decimal"
+            step="0.01"
+            min="0"
             data-field="price"
             value="${escapeHtml(priceValue ?? '')}"
             placeholder="${escapeHtml(item.priceRaw ?? '')}"
@@ -366,6 +379,30 @@ const handleSaveRow = async (row, id, dataset) => {
     console.error('Error al guardar:', error);
     setRowMessage(row, error.message || 'Error al guardar.', 'error');
   } finally {
+    disableRowButtons(row, false);
+  }
+};
+
+const handleDeleteRow = async (row, id, dataset) => {
+  if (!Number.isFinite(id)) return;
+  const confirmDelete = window.confirm('¿Seguro que quieres eliminar este registro del catálogo?');
+  if (!confirmDelete) return;
+  setRowMessage(row, 'Eliminando…');
+  disableRowButtons(row, true);
+  try {
+    await requestJson(`/api/${dataset}/${id}`, { method: 'DELETE' });
+    row.remove();
+    inventoryCaches[dataset].delete(id);
+    const state = inventoryStates[dataset];
+    state.totalItems = Math.max(0, state.totalItems - 1);
+    setGlobalMessage('Registro eliminado.', 'success');
+    updatePaginationControls(dataset);
+    if (!tableBody.querySelector('tr')) {
+      fetchInventoryItems(dataset, { page: Math.max(1, state.page - 1) });
+    }
+  } catch (error) {
+    console.error('Error al eliminar registro:', error);
+    setRowMessage(row, error.message || 'No se pudo eliminar.', 'error');
     disableRowButtons(row, false);
   }
 };
@@ -508,6 +545,8 @@ const initializeInventoryManager = () => {
         const cacheItem = inventoryCaches[dataset].get(id);
         fillRowWithItem(row, cacheItem);
         setRowMessage(row, 'Valores originales restaurados.');
+      } else if (actionButton.dataset.action === 'remove') {
+        handleDeleteRow(row, id, dataset);
       }
     });
   }

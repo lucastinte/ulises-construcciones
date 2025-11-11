@@ -856,6 +856,16 @@ textarea:focus {
   font-size: 0.92rem;
 }
 
+.materials-price-field input::-webkit-outer-spin-button,
+.materials-price-field input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.materials-price-field input[type='number'] {
+  -moz-appearance: textfield;
+}
+
 .materials-price-prefix {
   font-family: var(--font-heading);
   color: var(--color-primary-strong);
