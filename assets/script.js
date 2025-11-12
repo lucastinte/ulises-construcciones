@@ -1065,10 +1065,7 @@ function updateSummary() {
   scheduleSave();
 }
 
-function clearAll() {
-  const confirmClear = window.confirm('¿Deseas eliminar toda la información cargada?');
-  if (!confirmClear) return;
-
+function resetWorkspace({ resetStorage = true } = {}) {
   Object.values(projectFields).forEach((field) => {
     field.value = '';
   });
@@ -1091,9 +1088,15 @@ function clearAll() {
 
   updateSummary();
 
-  if (storageAvailable) {
+  if (resetStorage && storageAvailable) {
     window.localStorage.removeItem(storageKey);
   }
+}
+
+function clearAll() {
+  const confirmClear = window.confirm('¿Deseas eliminar toda la información cargada?');
+  if (!confirmClear) return;
+  resetWorkspace();
 }
 
 function buildReportItems(budgetData = {}) {
@@ -1904,6 +1907,8 @@ function fillCatalogForm(entry) {
 function applyCatalogEntry(entry) {
   if (!entry) return;
 
+  resetWorkspace({ resetStorage: false });
+
   Object.entries(projectFields).forEach(([key, field]) => {
     field.value = entry.project?.[key] ?? '';
   });
@@ -1972,6 +1977,7 @@ async function handleCatalogListClick(event) {
   if (action === 'apply') {
     applyCatalogEntry(entry);
   } else if (action === 'edit') {
+    applyCatalogEntry(entry);
     fillCatalogForm(entry);
   } else if (action === 'delete') {
     const confirmDelete = window.confirm(
