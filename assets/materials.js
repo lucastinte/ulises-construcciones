@@ -154,9 +154,13 @@ const requestJson = async (url, options = {}) => {
 };
 
 const formatPriceInputValue = (item) => {
-  if (Number.isFinite(item?.price)) return item.price;
-  if (Number.isFinite(item?.priceCents)) return item.priceCents / 100;
-  if (item?.priceRaw) return item.priceRaw;
+  if (Number.isFinite(item?.price)) return Math.round(item.price);
+  if (Number.isFinite(item?.priceCents)) return Math.round(item.priceCents / 100);
+  if (item?.priceRaw) {
+    const parsed = Number.parseFloat(item.priceRaw.replace(',', '.'));
+    if (Number.isFinite(parsed)) return Math.round(parsed);
+    return item.priceRaw;
+  }
   return '';
 };
 

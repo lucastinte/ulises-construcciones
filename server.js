@@ -225,6 +225,7 @@ const createInventoryModel = (tableName) => {
     WHERE id = @id
   `);
   const countStmt = db.prepare(`SELECT COUNT(*) AS total FROM ${tableName}`);
+  const deleteStmt = db.prepare(`DELETE FROM ${tableName} WHERE id = @id`);
 
   const saveTransaction = db.transaction((items) => {
     let inserted = 0;
@@ -254,6 +255,7 @@ const createInventoryModel = (tableName) => {
     getByIdStmt,
     countStmt,
     saveTransaction,
+    deleteStmt,
   };
 };
 
@@ -436,6 +438,7 @@ const buildInventoryItemFromRow = (row = []) => {
   if (priceCandidate === null || priceCandidate === undefined) return null;
   const priceInfo = parsePriceValue(priceCandidate);
   if (!priceInfo) return null;
+  priceInfo.cents = Math.round(priceInfo.cents / 100) * 100;
   const extra = { rawRow: normalizedRow };
   return {
     name,
@@ -855,6 +858,26 @@ const registerInventoryRoutes = (slug, model) => {
       }
       console.error(`Error al actualizar ${meta.label.toLowerCase()}:`, error);
       res.status(500).json({ ok: false, error: 'No se pudo guardar el registro.' });
+    }
+  });
+
+  app.delete(`/api/${slug}/:id`, (req, res) => {
+    try {
+      const id = Number.parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        res.status(400).json({ ok: false, error: 'ID inválido.' });
+        return;
+      }
+      const current = model.getByIdStmt.get({ id });
+      if (!current) {
+        res.status(404).json({ ok: false, error: 'Registro no encontrado.' });
+        return;
+      }
+      model.deleteStmt.run({ id });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error(`Error al eliminar ${meta.label.toLowerCase()}:`, error);
+      res.status(500).json({ ok: false, error: 'No se pudo eliminar el registro.' });
     }
   });
 };

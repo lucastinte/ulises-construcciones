@@ -1,8 +1,15 @@
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
   style: 'currency',
   currency: 'ARS',
-  maximumFractionDigits: 2,
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
 });
+
+const BRAND_INFO = {
+  name: 'BISEL.ARG',
+  tagline: 'Soluciones estructurales comerciales y residenciales',
+  logo: '/assets/logo-bisel.png',
+};
 
 const reportDateFormatter = new Intl.DateTimeFormat('es-AR', {
   day: '2-digit',
@@ -692,7 +699,7 @@ function createBudgetRow(sectionKey, data = {}) {
   const removeButton = row.querySelector('[data-action="remove-row"]');
 
   conceptInput.value = data.concept || '';
-  quantityInput.value = data.quantity ?? 0;
+  quantityInput.value = data.quantity ?? 1;
   unitCostInput.value = data.unitCost ?? 0;
 
   const handleInput = () => updateRowTotal(row, sectionKey);
@@ -1141,6 +1148,9 @@ function renderBudgetDocument(payload) {
   summary.total = Number.isFinite(summary.total) ? summary.total : subtotalValue + marginValue;
   const items = buildReportItems(payload.budget || {});
 
+  const brandName = project.companyName || BRAND_INFO.name;
+  const brandTagline = project.brandTagline || BRAND_INFO.tagline;
+  const brandLogoUrl = project.brandLogo || new URL(BRAND_INFO.logo, window.location.origin).href;
   const projectName = project.projectName || 'Proyecto sin título';
   const clientName = project.clientName || 'Cliente sin nombre';
   const creationDate = formatDate(project.creationDate || payload.generatedAt);
@@ -1172,6 +1182,8 @@ function renderBudgetDocument(payload) {
   const safeCompanySocial = escapeHtml(companySocial);
   const safeCompanyCuit = escapeHtml(`CUIT: ${companyCuit}`);
   const safeCompanyPhone = escapeHtml(companyPhone);
+  const safeBrandName = escapeHtml(brandName);
+  const safeBrandTagline = escapeHtml(brandTagline);
   const safeGeneratedDate = escapeHtml(generatedDate);
 
   const renderItemRow = (item) => {
@@ -1265,37 +1277,52 @@ function renderBudgetDocument(payload) {
       .hero__brand {
         background: linear-gradient(155deg, #0f3f46 0%, #123f45 55%, #0a2c31 100%);
         color: #f4efe4;
-        padding: 26px 24px;
+        padding: 22px 24px;
         border-radius: 14px;
-        display: grid;
-        gap: 0.8rem;
-        align-content: start;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
         min-height: 170px;
       }
-      .hero__brand h1 {
+      .hero__brand-logo {
+        width: 105px;
+        height: 105px;
+        border-radius: 28px;
+        background: rgba(4, 14, 26, 0.35);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        padding: 0.35rem;
+        box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.15), 0 18px 28px rgba(0, 0, 0, 0.35);
+      }
+      .hero__brand-logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      .hero__brand-identity {
+        display: grid;
+        gap: 0.65rem;
+      }
+      .hero__brand-identity h1 {
         margin: 0;
         font-family: 'Montserrat', sans-serif;
-        font-size: 1.3rem;
-        letter-spacing: 0.17em;
+        font-size: 1.32rem;
+        letter-spacing: 0.2em;
         text-transform: uppercase;
         line-height: 1.35;
       }
-      .hero__brand p {
+      .hero__brand-identity p {
         margin: 0;
         letter-spacing: 0.13em;
         text-transform: uppercase;
         font-size: 0.8rem;
-        opacity: 0.88;
+        opacity: 0.9;
       }
-      .hero__brand span {
+      .hero__brand-identity span {
         font-size: 0.78rem;
         letter-spacing: 0.06em;
         display: inline-flex;
         align-items: center;
         gap: 0.35rem;
-      }
-      .hero__brand span::before {
-        content: '📄';
       }
       .hero__meta {
         background: linear-gradient(180deg, rgba(15, 63, 70, 0.08) 0%, rgba(255, 255, 255, 0.94) 68%);
@@ -1528,8 +1555,9 @@ function renderBudgetDocument(payload) {
         body { background: #fff; }
         .document { box-shadow: none; margin: 0 auto; width: auto; max-width: none; border-radius: 0; }
         .hero { padding: 18px 20px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
-        .hero__brand { padding: 22px 22px; min-height: 150px; }
-        .hero__brand span::before { display: none; }
+        .hero__brand { padding: 20px 20px; min-height: 150px; flex-direction: column; text-align: center; }
+        .hero__brand-logo { margin: 0 auto; }
+        .hero__brand-identity { text-align: center; }
         .hero__meta { padding: 22px 22px; }
         .section { padding: 18px 22px; page-break-inside: auto; break-inside: auto; }
         table { font-size: 0.86em; }
@@ -1548,9 +1576,14 @@ function renderBudgetDocument(payload) {
     <div class="document">
       <header class="hero">
         <div class="hero__brand">
-          <h1>Ulises Construcciones</h1>
-          <p>Soluciones residenciales</p>
-          <span>${safeCompanyCuit}</span>
+          <div class="hero__brand-logo">
+            <img src="${brandLogoUrl}" alt="${safeBrandName} logo" />
+          </div>
+          <div class="hero__brand-identity">
+            <h1>${safeBrandName}</h1>
+            <p>${safeBrandTagline}</p>
+            <span>${safeCompanyCuit}</span>
+          </div>
         </div>
         <div class="hero__meta">
           <div class="hero__meta-header">
