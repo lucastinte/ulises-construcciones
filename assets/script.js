@@ -2114,6 +2114,41 @@ function setupCatalogMediaControls() {
   }
 }
 
+function setupAutoClearInputs() {
+  const getReferenceValue = (input) => {
+    if (input.dataset.autoClearDefaultValue !== undefined) {
+      return input.dataset.autoClearDefaultValue;
+    }
+    const attrDefault = input.getAttribute('data-auto-clear-default');
+    const reference = attrDefault !== null ? attrDefault : input.defaultValue ?? '';
+    input.dataset.autoClearDefaultValue = reference;
+    return reference;
+  };
+
+  document.addEventListener(
+    'focusin',
+    (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      const mode = target.dataset.autoClear;
+      if (!mode) return;
+
+      if (mode === 'default') {
+        const referenceValue = getReferenceValue(target);
+        if (target.value === referenceValue) {
+          target.value = '';
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      } else if (mode === 'select' && typeof target.select === 'function') {
+        window.requestAnimationFrame(() => {
+          target.select();
+        });
+      }
+    },
+    true
+  );
+}
+
 function initialize() {
   try {
     const testKey = '__storage_test__';
@@ -2125,6 +2160,7 @@ function initialize() {
   }
 
   setupMaterialSearch();
+  setupAutoClearInputs();
   document.querySelectorAll('[data-action="add-row"]').forEach((button) => {
     const sectionKey = button.dataset.section;
     button.addEventListener('click', () => addBudgetRow(sectionKey));
