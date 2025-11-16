@@ -1498,6 +1498,7 @@ tfoot td {
   display: grid;
   gap: 1.2rem;
   align-content: start;
+  align-self: start;
 }
 
 .catalog-library__header {
@@ -1526,6 +1527,42 @@ tfoot td {
   background: var(--color-accent-soft);
   color: var(--color-accent);
   font-weight: 600;
+}
+
+.catalog-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.catalog-toolbar__search {
+  flex: 1 1 220px;
+}
+
+.catalog-toolbar__search input {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(15, 63, 70, 0.16);
+  background: rgba(255, 255, 255, 0.95);
+  font: inherit;
+}
+
+.catalog-toolbar__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.catalog-toolbar__filters select {
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(15, 63, 70, 0.16);
+  background: rgba(255, 255, 255, 0.95);
+  min-width: 180px;
+  font: inherit;
 }
 
 .catalog-empty {
@@ -1674,6 +1711,32 @@ tfoot td {
 .catalog-card__actions .button:focus-visible {
   transform: translateY(-1px);
   box-shadow: 0 10px 18px rgba(15, 63, 70, 0.14);
+}
+
+.catalog-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  justify-content: space-between;
+  padding: 0.6rem 0.2rem;
+}
+
+.catalog-pagination__label {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.catalog-library--sticky {
+  position: sticky;
+  top: 110px;
+  max-height: calc(100vh - 160px);
+  overflow: auto;
+  padding-right: 0.35rem;
+}
+
+.catalog-library--sticky .catalog-list {
+  padding-right: 0.35rem;
 }
 
 .catalog-detail-overlay {
@@ -2386,6 +2449,27 @@ body.catalog-detail-open {
 
   .catalog-card__actions .button {
     flex: 1 1 100%;
+  }
+
+  .catalog-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .catalog-toolbar__filters {
+    width: 100%;
+  }
+
+  .catalog-library--sticky {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .catalog-pagination {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .catalog-detail {

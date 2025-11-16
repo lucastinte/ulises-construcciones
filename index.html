@@ -429,16 +429,31 @@
               Se guardarán los materiales, insumos, mano de obra y ajustes actuales. Podrás reutilizarlos y editarlos cuando quieras.
             </p>
           </form>
-          <section class="catalog-library">
+          <section class="catalog-library catalog-library--sticky">
             <header class="catalog-library__header">
               <h3>Plantillas guardadas</h3>
               <span id="catalogCount">0</span>
             </header>
+            <div class="catalog-toolbar">
+              <div class="catalog-toolbar__search">
+                <input type="search" id="catalogSearch" placeholder="Buscar plantillas por nombre o categoría" autocomplete="off" />
+              </div>
+              <div class="catalog-toolbar__filters">
+                <select id="catalogCategoryFilter">
+                  <option value="">Todas las categorías</option>
+                </select>
+                <button type="button" class="button button--ghost button--sm" id="catalogClearFilters">Limpiar</button>
+              </div>
+            </div>
             <div id="catalogEmptyState" class="catalog-empty">
               <p>No tienes plantillas guardadas aún.</p>
               <p class="catalog-empty__hint">Completa un presupuesto y usa “Guardar presupuesto actual”.</p>
             </div>
             <div id="catalogList" class="catalog-list" aria-live="polite"></div>
+            <div id="catalogPagination" class="catalog-pagination" hidden>
+              <p id="catalogResultsLabel" class="catalog-pagination__label"></p>
+              <button type="button" class="button button--ghost" id="catalogLoadMore">Cargar más</button>
+            </div>
           </section>
         </div>
       </section>

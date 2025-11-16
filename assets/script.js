@@ -100,6 +100,12 @@ const catalogCancelButton = document.getElementById('catalogCancel');
 const catalogListEl = document.getElementById('catalogList');
 const catalogEmptyState = document.getElementById('catalogEmptyState');
 const catalogCountEl = document.getElementById('catalogCount');
+const catalogSearchInput = document.getElementById('catalogSearch');
+const catalogCategoryFilter = document.getElementById('catalogCategoryFilter');
+const catalogClearFiltersBtn = document.getElementById('catalogClearFilters');
+const catalogPaginationEl = document.getElementById('catalogPagination');
+const catalogResultsLabel = document.getElementById('catalogResultsLabel');
+const catalogLoadMoreButton = document.getElementById('catalogLoadMore');
 
 const catalogFields = {
   name: document.getElementById('catalogName'),
@@ -144,6 +150,8 @@ const summaryValues = {
   total: 0,
 };
 
+const CATALOG_PAGE_SIZE = 3;
+
 const storageKey = 'ulises-construcciones-budget-v2';
 let storageAvailable = false;
 let saveTimeout;
@@ -152,6 +160,8 @@ let catalogEntries = [];
 let catalogEditingId = null;
 let catalogLoading = false;
 let catalogLoadError = null;
+let catalogFilters = { search: '', category: '' };
+let catalogPage = 1;
 let catalogImages = [];
 let catalogDocuments = [];
 let materialSuggestionsAbortController = null;
@@ -206,6 +216,61 @@ function getFileDisplayName(url, fallbackLabel) {
     }
   }
   return fallback;
+}
+
+function normalizeCatalogText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function hasCatalogFilters() {
+  return Boolean((catalogFilters.search || '').trim() || catalogFilters.category);
+}
+
+function getFilteredCatalogEntries() {
+  const term = normalizeCatalogText(catalogFilters.search);
+  const category = normalizeCatalogText(catalogFilters.category);
+
+  return catalogEntries.filter((entry) => {
+    const name = normalizeCatalogText(entry.name);
+    const entryCategory = normalizeCatalogText(entry.category);
+    const description = normalizeCatalogText(entry.description);
+    const matchesSearch = !term || name.includes(term) || entryCategory.includes(term) || description.includes(term);
+    const matchesCategory = !category || entryCategory === category;
+    return matchesSearch && matchesCategory;
+  });
+}
+
+function updateCatalogCategoryOptions() {
+  if (!catalogCategoryFilter) return;
+  const categoryMap = new Map();
+  catalogEntries.forEach((entry) => {
+    const label = String(entry.category || '').trim();
+    if (!label) return;
+    const key = normalizeCatalogText(label);
+    if (!categoryMap.has(key)) {
+      categoryMap.set(key, label);
+    }
+  });
+
+  const previousValue = catalogFilters.category;
+  catalogCategoryFilter.innerHTML = '<option value=\"\">Todas las categorías</option>';
+  Array.from(categoryMap.entries())
+    .sort((a, b) => a[1].localeCompare(b[1], 'es', { sensitivity: 'base' }))
+    .forEach(([value, label]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      catalogCategoryFilter.appendChild(option);
+    });
+
+  if (previousValue && !categoryMap.has(previousValue)) {
+    catalogFilters.category = '';
+  }
+  catalogCategoryFilter.value = catalogFilters.category;
 }
 
 function renderMediaList(type) {
@@ -329,10 +394,12 @@ async function refreshCatalogEntries() {
       throw new Error('Respuesta inválida del servidor.');
     }
     catalogEntries = data.items;
+    catalogPage = 1;
     setCatalogLoadingState(false);
   } catch (error) {
     console.error('Error al cargar el catálogo.', error);
     catalogEntries = [];
+    catalogPage = 1;
     setCatalogLoadingState(false, 'No se pudo cargar el catálogo. Intenta nuevamente.');
   }
 
@@ -1768,6 +1835,12 @@ function resetCatalogForm() {
 
 function renderCatalog() {
   catalogCountEl.textContent = catalogEntries.length;
+  if (catalogPaginationEl) {
+    catalogPaginationEl.hidden = true;
+  }
+  if (catalogResultsLabel) {
+    catalogResultsLabel.textContent = '';
+  }
 
   if (catalogLoading) {
     catalogEmptyState.style.display = 'none';
@@ -1782,6 +1855,8 @@ function renderCatalog() {
     return;
   }
 
+  updateCatalogCategoryOptions();
+
   if (catalogEntries.length === 0) {
     catalogListEl.innerHTML = '';
     catalogEmptyState.style.display = 'block';
@@ -1791,7 +1866,16 @@ function renderCatalog() {
   catalogEmptyState.style.display = 'none';
   catalogListEl.innerHTML = '';
 
-  catalogEntries.forEach((entry) => {
+  const filteredEntries = getFilteredCatalogEntries();
+  const visibleEntries = filteredEntries.slice(0, catalogPage * CATALOG_PAGE_SIZE);
+
+  if (filteredEntries.length === 0) {
+    catalogListEl.innerHTML =
+      '<p class="catalog-loading">No hay plantillas que coincidan con los filtros.</p>';
+    return;
+  }
+
+  visibleEntries.forEach((entry) => {
     const card = document.createElement('article');
     card.className = 'catalog-card catalog-card--compact';
     card.dataset.id = entry.id;
@@ -1829,6 +1913,46 @@ function renderCatalog() {
 
     catalogListEl.appendChild(card);
   });
+
+  if (catalogPaginationEl) {
+    const hasMore = filteredEntries.length > visibleEntries.length;
+    catalogPaginationEl.hidden = filteredEntries.length === 0;
+    if (catalogLoadMoreButton) {
+      catalogLoadMoreButton.hidden = !hasMore;
+      if (hasMore) {
+        const remaining = filteredEntries.length - visibleEntries.length;
+        catalogLoadMoreButton.textContent = `Cargar más (${remaining})`;
+      }
+    }
+    if (catalogResultsLabel) {
+      catalogResultsLabel.textContent = `Mostrando ${visibleEntries.length} de ${filteredEntries.length} plantillas${hasCatalogFilters() ? ' filtradas' : ''}`;
+    }
+  }
+}
+
+function handleCatalogSearchInput(event) {
+  catalogFilters.search = event.target.value || '';
+  catalogPage = 1;
+  renderCatalog();
+}
+
+function handleCatalogCategoryChange(event) {
+  catalogFilters.category = event.target.value || '';
+  catalogPage = 1;
+  renderCatalog();
+}
+
+function handleCatalogClearFilters() {
+  catalogFilters = { search: '', category: '' };
+  catalogPage = 1;
+  if (catalogSearchInput) catalogSearchInput.value = '';
+  if (catalogCategoryFilter) catalogCategoryFilter.value = '';
+  renderCatalog();
+}
+
+function handleCatalogLoadMore() {
+  catalogPage += 1;
+  renderCatalog();
 }
 
 async function handleCatalogSubmit(event) {
@@ -2189,6 +2313,18 @@ function initialize() {
   catalogForm.addEventListener('submit', handleCatalogSubmit);
   catalogCancelButton.addEventListener('click', handleCatalogCancel);
   catalogListEl.addEventListener('click', handleCatalogListClick);
+  if (catalogSearchInput) {
+    catalogSearchInput.addEventListener('input', handleCatalogSearchInput);
+  }
+  if (catalogCategoryFilter) {
+    catalogCategoryFilter.addEventListener('change', handleCatalogCategoryChange);
+  }
+  if (catalogClearFiltersBtn) {
+    catalogClearFiltersBtn.addEventListener('click', handleCatalogClearFilters);
+  }
+  if (catalogLoadMoreButton) {
+    catalogLoadMoreButton.addEventListener('click', handleCatalogLoadMore);
+  }
 
   setupCatalogMediaControls();
   setupCatalogUploads();
