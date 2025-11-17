@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Panel de Catálogos - Ulises Construcciones</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Lato:wght@400;500;600;700&family=Montserrat:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="assets/styles.css" />
+    <link rel="icon" type="image/png" href="assets/logo-bisel.png" />
+    <script src="assets/materials.js" type="module" defer></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="app-header__top">
+        <div class="branding">
+          <div class="branding__logo" aria-hidden="true">
+            <img src="assets/logo-bisel.png" alt="BISEL.ARG logo" />
+          </div>
+          <div class="brand-text">
+            <h1>Panel de catálogos</h1>
+            <p>Materiales · Insumos · Mano de obra</p>
+          </div>
+        </div>
+        <div class="app-header__controls">
+          <a class="header-cta__button header-cta__button--accent" href="index.html">Volver al presupuesto</a>
+        </div>
+      </div>
+      <p>
+        Administra todos tus catálogos base desde un solo lugar: importa CSV, agrega registros manuales y actualiza los
+        precios que usa el presupuesto para materiales, insumos y mano de obra.
+      </p>
+    </header>
+
+    <main class="materials-admin">
+      <div class="inventory-tabs" role="tablist">
+        <button type="button" class="inventory-tabs__button is-active" data-inventory-tab="materials">
+          Materiales
+        </button>
+        <button type="button" class="inventory-tabs__button" data-inventory-tab="supplies">Insumos</button>
+        <button type="button" class="inventory-tabs__button" data-inventory-tab="labor">Mano de obra</button>
+      </div>
+      <section class="card">
+        <header class="card__header">
+          <h2>Importar <span id="inventoryImportLabel">Materiales</span></h2>
+          <p id="inventoryImportDescription">Carga un archivo CSV con los materiales y precios actualizados.</p>
+        </header>
+        <div class="card__body">
+          <form id="materialImportForm" class="form-grid" enctype="multipart/form-data" novalidate>
+            <label class="form-grid__full" for="materialImportFile">
+              <span>Archivo CSV (usa el prompt para convertir tu Excel)</span>
+              <input type="file" id="materialImportFile" name="file" accept=".csv" required />
+            </label>
+            <div class="material-import__actions form-grid__full">
+              <button type="submit" class="button button--primary" id="materialImportSubmit">Importar</button>
+              <button type="button" class="button button--ghost" id="materialImportReset">Limpiar selección</button>
+            </div>
+            <p id="materialImportStatus" class="material-import__status" role="status"></p>
+          </form>
+          <div id="materialImportSummaryBox" class="csv-summary" hidden>
+            <h3>Resumen de la última importación</h3>
+            <ul id="materialImportSummaryList"></ul>
+          </div>
+          <div class="csv-help-list-wrapper">
+            <h3>¿Cómo preparo el archivo?</h3>
+            <p class="csv-help-text">
+              Para agregar o actualizar materiales, siempre subí un <strong>archivo CSV</strong>. Si tu fuente es un Excel,
+              convertí las columnas de nombre y precio con el siguiente prompt (copialo en ChatGPT u otra IA):
+            </p>
+            <pre class="csv-prompt" aria-label="Prompt sugerido para convertir a CSV"><code>Convierte esta tabla a CSV con columnas nombre,precio.
+- Cada nombre debe ir entre comillas dobles.
+- Elimina símbolos de moneda y usa punto como separador decimal (ej: $ 83.644,53 → 83644.53).
+- Descarta filas sin precio.
+- Responde solo con el CSV dentro de ```csv ... ```.
+A continuación pego las filas (nombre | precio):
+&lt;pega aquí tus datos&gt;
+</code></pre>
+            <ol class="csv-help-list">
+              <li>Copia las columnas de nombre y precio desde tu hoja original.</li>
+              <li>Pega ese contenido en el prompt, descarga el CSV que devuelve y selecciónalo en este formulario.</li>
+              <li>Presiona “Importar” para que el catálogo se actualice.</li>
+              <li>Usa la tabla inferior para buscar, editar o eliminar cada material.</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <header class="card__header">
+          <div>
+            <h2>Catálogo de <span id="inventoryDatasetLabel">Materiales</span></h2>
+            <p id="inventoryDatasetDescription">
+              Revisa el listado completo, navega por páginas y ajusta nombre o precio.
+            </p>
+          </div>
+          <div class="materials-alert" id="materialsGlobalMessage" role="status" aria-live="polite"></div>
+        </header>
+        <div class="card__body">
+          <div class="inventory-tools">
+            <div class="inventory-search">
+              <label for="inventorySearchInput">
+                <span>Buscar en el catálogo</span>
+                <input
+                  type="search"
+                  id="inventorySearchInput"
+                  placeholder="Escribe para buscar..."
+                  autocomplete="off"
+                />
+              </label>
+              <button type="button" class="button button--ghost" id="inventorySearchClear">Limpiar</button>
+            </div>
+            <form id="inventoryManualForm" class="inventory-manual-form">
+              <h3>Agregar registros manualmente</h3>
+              <div class="inventory-manual-grid">
+                <label>
+                  <span>Nombre</span>
+                  <input type="text" id="manualName" required placeholder="Ej. ANGULOS 1 1/2&quot;" />
+                </label>
+                <label>
+                  <span id="manualPriceLabel">Precio</span>
+                  <input type="number" id="manualPrice" step="0.01" min="0" required placeholder="0.00" />
+                </label>
+              </div>
+              <div class="inventory-manual-actions">
+                <button type="submit" class="button">Guardar registro</button>
+                <button type="reset" class="button button--ghost">Limpiar</button>
+              </div>
+            </form>
+          </div>
+          <div class="table-wrapper">
+            <table class="materials-table">
+              <thead>
+                <tr>
+                  <th style="width: 55%">Nombre</th>
+                  <th style="width: 25%" id="priceHeaderLabel">Precio</th>
+                  <th style="width: 20%">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="materialsTableBody">
+                <tr>
+                  <td colspan="3" id="materialsEmptyState">Cargando catálogo…</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="materials-pagination">
+            <div class="materials-pagination__info" id="materialsPaginationInfo">—</div>
+            <div class="materials-pagination__actions">
+              <button type="button" class="button button--ghost" id="materialsPrevPage">← Anterior</button>
+              <button type="button" class="button button--primary" id="materialsNextPage">Siguiente →</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
